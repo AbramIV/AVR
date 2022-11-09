@@ -23,6 +23,8 @@
 #define FaultOff	Low(PORTB, PORTB1)
 #define FaultInv	Inv(PORTB, PORTB1)
 
+#define TestPinInv	Inv(PORTB, PORTB4)	// operating led period = 1984 ms if not something wrong
+
 #define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
@@ -47,8 +49,8 @@
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.005		// if ratio > range up then motor left
 #define RangeDown		  -0.005
-#define LeftStepDuration  4			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
-#define RightStepDuration 4			// seconds		sp5 - 4				    rest 3
+#define LeftStepDuration  3			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
+#define RightStepDuration 3			// seconds		sp5 - 4				    rest 3
 #define PauseBetweenSteps 32		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
@@ -232,7 +234,7 @@ void Initialization()
 	USART(On);
 	sei();
 	
-	wdt_enable(WDTO_8S);
+	wdt_enable(WDTO_1S);
 }
 
 void StartOrStop()
@@ -434,7 +436,7 @@ int main()
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step5();
+		if (Motor.isStep) Step4();
 		
 		wdt_reset();
     }

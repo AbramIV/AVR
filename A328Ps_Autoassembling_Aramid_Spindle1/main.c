@@ -232,7 +232,7 @@ void Initialization()
 	USART(On);
 	sei();
 	
-	wdt_enable(WDTO_8S);
+	wdt_enable(WDTO_1S);
 }
 
 void StartOrStop()
