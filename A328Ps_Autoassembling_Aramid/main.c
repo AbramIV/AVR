@@ -23,8 +23,6 @@
 #define FaultOff	Low(PORTB, PORTB1)
 #define FaultInv	Inv(PORTB, PORTB1)
 
-#define TestPinInv	Inv(PORTB, PORTB4)	// operating led period = 1984 ms if not something wrong
-
 #define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
@@ -47,10 +45,11 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.005		// if ratio > range up then motor left
-#define RangeDown		  -0.005
-#define LeftStepDuration  3			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
-#define RightStepDuration 3			// seconds		sp5 - 4				    rest 3
+#define RangeUp			  0.004		
+#define RangeDown		  -0.004
+#define Hysteresis		  0.0001
+#define LeftStepDuration  3			// seconds	 sp5 - 4	sp4 - 3
+#define RightStepDuration 3			// seconds	 sp5 - 4	sp4 - 3
 #define PauseBetweenSteps 32		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
@@ -175,17 +174,18 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char d[8] = {}, a[8] = {}, p[8] = {}, buffer[32] = {}; 
-
-	sprintf(a, "A%.1f$", Measure.Fa);
-	sprintf(p, "P%.1f$", Measure.Fp);
-	sprintf(d, "D%.3f", Measure.d);
-	strcat(buffer, a);
-	strcat(buffer, p);
+	static char fa[6] = { 0 }, fp[6] = { 0 }, d[6] = { 0 };
+	static char buffer[16] = { 0 };
+	
+	sprintf(fa, "A%.1f$", Measure.Fa);
+	sprintf(fp, "P%.1f$", Measure.Fp);
+	sprintf(d, "D%.1f$", Measure.d);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
 	strcat(buffer, d);
 	TxString(buffer);
 	
-	for (int i=0; i<32; i++) buffer[i] = 0;
+	for (int i=0; i<16; i++) buffer[i] = 0;
 }
 
 float Average(float difference, bool isReset)
@@ -268,33 +268,6 @@ void StartOrStop()
 	}
 }			  
 
-void Step3()
-{
-	ImpOn;
-	
-	if (Motor.operation == Right)
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(5);
-			Motor.isFirstPulse = false;
-			return;
-		}
-		
-		_delay_ms(1);
-		ImpOff;
-		_delay_ms(5);
-		return;
-	}
-	
-	if (Motor.operation == Left)
-	{
-		_delay_ms(5);
-		ImpOff;
-		_delay_ms(1);
-	}
-}
-
 void Step4()
 {
 	ImpOn;
@@ -361,7 +334,7 @@ void Regulation()
 {
 	if (Motor.isStep) return;
 	
-	if ((Measure.d > RangeDown && Measure.d < RangeUp))
+	if (fabs(Measure.d) <= Hysteresis)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;

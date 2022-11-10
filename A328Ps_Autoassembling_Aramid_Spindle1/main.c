@@ -44,8 +44,9 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.005		// if ratio > range up then motor left
-#define RangeDown		  -0.005
+#define Hysteresis		  0.0001
+#define RangeUp			  0.004		// if ratio > range up then motor left
+#define RangeDown		  -0.004
 #define LeftStepDuration  3			// sp1
 #define RightStepDuration 3			// sp1
 #define PauseBetweenSteps 32			// sp1
@@ -197,16 +198,18 @@ float Average(float difference, bool isReset)
 
 void Transmit()
 {
-	 static char fa[20], fp[20];
-	 static char buffer[60];
+	 static char fa[6] = { 0 }, fp[6] = { 0 }, d[6] = { 0 };
+	 static char buffer[16] = { 0 };
 	
-	 sprintf(fa, "A%.1f", Measure.Fa);
-	 sprintf(fp, "P%.1f", Measure.Fp);
+	 sprintf(fa, "A%.1f$", Measure.Fa);
+	 sprintf(fp, "P%.1f$", Measure.Fp);
+	 sprintf(d, "D%.1f$",  Measure.d);
 	 strcat(buffer, fa);
 	 strcat(buffer, fp);
+	 strcat(buffer, d);
 	 TxString(buffer);
 	 
-	 memset(buffer, 0, 60);
+	 for (int i=0; i<16; i++) buffer[i] = 0;
 }
 
 void Calculation()
@@ -282,7 +285,7 @@ void Regulation()
 {
 	if (Motor.isStep) return;
 	
-	if ((Measure.d > RangeDown && Measure.d < RangeUp))
+	if (fabs(Measure.d) <= Hysteresis)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
