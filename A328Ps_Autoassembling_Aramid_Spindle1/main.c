@@ -44,12 +44,12 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define Hysteresis		  0.0001
-#define RangeUp			  0.004		// if ratio > range up then motor left
-#define RangeDown		  -0.004
-#define LeftStepDuration  3			// sp1
-#define RightStepDuration 3			// sp1
-#define PauseBetweenSteps 32			// sp1
+#define Hysteresis		  0.001
+#define RangeUp			  0.005		// if ratio > range up then motor left
+#define RangeDown		  -0.005
+#define LeftStepDuration  4			// sp1
+#define RightStepDuration 4			// sp1
+#define PauseBetweenSteps 16		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
@@ -81,6 +81,7 @@ struct ModeControl
 struct MotorControl
 {
 	unsigned int isDelay, isStep, operation;
+	bool isFirstPulse;
 } Motor = { 0, 0, Locked };
 
 void Timer0(bool enable)
@@ -198,18 +199,20 @@ float Average(float difference, bool isReset)
 
 void Transmit()
 {
-	 static char fa[6] = { 0 }, fp[6] = { 0 }, d[6] = { 0 };
-	 static char buffer[16] = { 0 };
+	 static char fa[10] = { 0 }, fp[10] = { 0 }, d[10] = { 0 };
+	 static char buffer[32] = { 0 };
 	
 	 sprintf(fa, "A%.1f$", Measure.Fa);
 	 sprintf(fp, "P%.1f$", Measure.Fp);
-	 sprintf(d, "D%.1f$",  Measure.d);
+	 sprintf(d, "D%.3f$",  Measure.d);
+	 
 	 strcat(buffer, fa);
 	 strcat(buffer, fp);
 	 strcat(buffer, d);
+	 
 	 TxString(buffer);
 	 
-	 for (int i=0; i<16; i++) buffer[i] = 0;
+	 for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
 void Calculation()
@@ -273,7 +276,18 @@ void Step()
 {
 	ImpOn;
 	
-	if (Motor.operation == Right) _delay_us(500);
+	if (Motor.operation == Right) 
+	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(2);
+			Motor.isFirstPulse = false;
+			return;
+		}
+		
+		_delay_us(500);
+	}
+	
 	if (Motor.operation == Left) _delay_ms(5);
 
 	ImpOff;
@@ -303,6 +317,7 @@ void Regulation()
 	{
 		Motor.operation = Right;
 		Motor.isStep = RightStepDuration;
+		Motor.isFirstPulse = true;
 	}
 }
 
