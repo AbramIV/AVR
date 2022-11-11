@@ -44,12 +44,10 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define Hysteresis		  0.001
-#define RangeUp			  0.005		// if ratio > range up then motor left
-#define RangeDown		  -0.005
-#define LeftStepDuration  4			// sp1
-#define RightStepDuration 4			// sp1
-#define PauseBetweenSteps 16		// sp1
+#define Setpoint		  0.001
+#define RangeUp			  0.004		// if ratio > range up then motor left
+#define RangeDown		  -0.004
+#define StepDuration	  4			// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
@@ -62,27 +60,27 @@
 
 struct TimeControl
 {
-	unsigned int ms;
+	unsigned short ms;
 	bool handle;
 } MainTimer = { 0, false };
 
 struct Data
 {
-	unsigned int ovf;
+	unsigned short ovf;
 	float Fa, Fp, d;
 } Measure = { 0, 0, 0, 0 };
 
 struct ModeControl
 {
-	unsigned int startDelay, faultDelay;
+	unsigned short startDelay, faultDelay;
 	bool fault, run;
 } Mode = { 0, FaultDelay, false, false };
 
 struct MotorControl
 {
-	unsigned int isDelay, isStep, operation;
+	unsigned short isDelay, isStep, operation, stepsInterval; 
 	bool isFirstPulse;
-} Motor = { 0, 0, Locked };
+} Motor = { 0, 0, Locked, 0, false };
 
 void Timer0(bool enable)
 {
@@ -199,20 +197,22 @@ float Average(float difference, bool isReset)
 
 void Transmit()
 {
-	 static char fa[10] = { 0 }, fp[10] = { 0 }, d[10] = { 0 };
-	 static char buffer[32] = { 0 };
+	 static char fa[10] = { 0 }, fp[10] = { 0 }, d[10] = { 0 }, i[8] = { 0 };
+	 static char buffer[64] = { 0 };
 	
 	 sprintf(fa, "A%.1f$", Measure.Fa);
 	 sprintf(fp, "P%.1f$", Measure.Fp);
 	 sprintf(d, "D%.3f$",  Measure.d);
+	 sprintf(i, "I%d$",  Motor.stepsInterval);
 	 
 	 strcat(buffer, fa);
 	 strcat(buffer, fp);
 	 strcat(buffer, d);
+	 strcat(buffer, i);
 	 
 	 TxString(buffer);
 	 
-	 for (int i=0; i<32; i++) buffer[i] = 0;
+	 for (int i=0; i<64; i++) buffer[i] = 0;
 }
 
 void Calculation()
@@ -220,6 +220,9 @@ void Calculation()
 	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
 	Measure.Fp = (float)TCNT1;
 	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
+	
+	Motor.stepsInterval = (unsigned short) 64/(fabs(Measure.d / Setpoint));
+	if (Motor.stepsInterval < 4) Motor.stepsInterval = 4;
 }
 
 void Initialization()
@@ -288,7 +291,17 @@ void Step()
 		_delay_us(500);
 	}
 	
-	if (Motor.operation == Left) _delay_ms(5);
+	if (Motor.operation == Left) 
+	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(5);
+			Motor.isFirstPulse = false;
+			return;
+		}
+		
+		_delay_ms(5);
+	}
 
 	ImpOff;
 	
@@ -299,7 +312,7 @@ void Regulation()
 {
 	if (Motor.isStep) return;
 	
-	if (fabs(Measure.d) <= Hysteresis)
+	if (fabs(Measure.d) <= Setpoint)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -308,17 +321,11 @@ void Regulation()
 	
 	if (Motor.isDelay) return;
 	
-	if (Measure.d >= RangeUp)
-	{
-		Motor.operation = Left;
-		Motor.isStep = LeftStepDuration;
-	}
-	else
-	{
-		Motor.operation = Right;
-		Motor.isStep = RightStepDuration;
-		Motor.isFirstPulse = true;
-	}
+	if (Measure.d >= RangeUp) Motor.operation = Left;
+	else Motor.operation = Right;
+	
+	Motor.isStep = StepDuration;
+	Motor.isFirstPulse = true;
 }
 
 void Process()
@@ -336,7 +343,7 @@ void Process()
 		if (Motor.isStep)
 		{
 			Motor.isStep--;
-			if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
+			if (!Motor.isStep) Motor.isDelay = Motor.stepsInterval;
 		}
 		
 		Regulation();
