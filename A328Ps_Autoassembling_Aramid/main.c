@@ -45,12 +45,10 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.004		
-#define RangeDown		  -0.004
-#define Hysteresis		  0.0001
-#define LeftStepDuration  3			// seconds	 sp5 - 4	sp4 - 3
-#define RightStepDuration 3			// seconds	 sp5 - 4	sp4 - 3
-#define PauseBetweenSteps 32		// seconds
+#define Setpoint		  0.002 
+#define RangeUp			  0.005		
+#define RangeDown		  -0.005
+#define StepDuration	  3			// seconds	 sp5 - 4	sp4 - 3
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -81,9 +79,9 @@ struct ModeControl
 
 struct MotorControl
 {
-	unsigned int isDelay, isStep, operation;
+	unsigned int isDelay, isStep, operation, stepsInterval;
 	bool isFirstPulse;
-} Motor = { 0, 0, Locked, true }; 
+} Motor = { 0, 0, Locked, 0, true }; 
 
 void Timer0(bool enable)
 {
@@ -216,6 +214,9 @@ void Calculation()
 	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
 	Measure.Fp = (float)TCNT1;
 	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
+
+	Motor.stepsInterval = (unsigned short) 64/(fabs(Measure.d / Setpoint));
+	if (Motor.stepsInterval < 4) Motor.stepsInterval = 4;
 }
 
 void Initialization()
@@ -234,7 +235,7 @@ void Initialization()
 	USART(On);
 	sei();
 	
-	wdt_enable(WDTO_1S);
+	wdt_enable(WDTO_8S);
 }
 
 void StartOrStop()
@@ -272,23 +273,32 @@ void Step4()
 {
 	ImpOn;
 	
+	if (Motor.operation == Right)
+	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(2);
+			Motor.isFirstPulse = false;
+			ImpOff;
+			return;
+		}
+		
+		_delay_us(1165);
+		ImpOff;
+		_delay_ms(5);
+		return;
+	}
+	
 	if (Motor.operation == Left)
 	{
 		if (Motor.isFirstPulse)
 		{
 			_delay_ms(5);
 			Motor.isFirstPulse = false;
+			ImpOff;
 			return;
 		}
 		
-		_delay_ms(1);
-		ImpOff;
-		_delay_ms(5);
-		return;
-	}
-	
-	if (Motor.operation == Right)
-	{
 		_delay_ms(5);
 		ImpOff;
 		_delay_ms(1);
@@ -316,6 +326,14 @@ void Step5()
 	
 	if (Motor.operation == Left)
 	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(5);
+			Motor.isFirstPulse = false;
+			ImpOff;
+			return;
+		}
+		
 		_delay_ms(5);
 		ImpOff;
 		_delay_ms(1);
@@ -325,7 +343,7 @@ void Step5()
 void Step()
 {
 	ImpOn;
-	_delay_us(450);
+	_delay_us(1165);
 	ImpOff;
 	_delay_ms(5);
 }
@@ -334,7 +352,7 @@ void Regulation()
 {
 	if (Motor.isStep) return;
 	
-	if (fabs(Measure.d) <= Hysteresis)
+	if (fabs(Measure.d) <= Setpoint)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -343,17 +361,11 @@ void Regulation()
 	
 	if (Motor.isDelay) return;
 	
-	if (Measure.d >= RangeUp) 
-	{
-		Motor.operation = Left;
-		Motor.isStep = LeftStepDuration;
-		Motor.isFirstPulse = true; 
-	}
-	else 
-	{
-		Motor.operation = Right;
-		Motor.isStep = RightStepDuration;
-	}
+	if (Measure.d >= RangeUp) Motor.operation = Left;
+	else Motor.operation = Right;
+	
+	Motor.isStep = StepDuration;
+	Motor.isFirstPulse = true;
 }
 
 void Process()
@@ -371,7 +383,7 @@ void Process()
 		if (Motor.isStep)
 		{
 			Motor.isStep--;
-			if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
+			if (!Motor.isStep) Motor.isDelay = 32;//Motor.stepsInterval;
 		}
 		
 		Regulation();
@@ -410,6 +422,7 @@ int main()
 		}
 		
 		if (Motor.isStep) Step4();
+		if (Imp) ImpOff;
 		
 		wdt_reset();
     }
