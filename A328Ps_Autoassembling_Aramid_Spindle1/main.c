@@ -4,10 +4,10 @@
  * Created: 6/4/2022 7:34:54 PM
  *  Author: igor.abramov
  * k = Tcount*0.028*Pi*60/100
+ * PWM 14 % OCR2A = 144; 
+ * PWM 18 % OCR2A = 152; 
  */ 
-
-#define F_CPU	16000000L
-				
+			
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
@@ -28,27 +28,31 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define TxEnable 	Check(PIND, PIND2)		// if connected every sec data transmit
+#define TxEnable 	Check(PIND, PIND2)	// if connected every sec data transmit
 #define Running		Check(PIND, PIND3)  // spindle run input
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
 
-#define Off				  0
+#define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
+#define PulseOn		High(TCCR2A, COM2A1)
+#define PulseOff	Low(TCCR2A, COM2A1)
+
+#define Off				  0			// hardware features modes
 #define On				  1
 #define Init			  2
 
-#define Right	 		  10
+#define Right	 		  10	    // move directions of motor
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  64		// these parameters also should be positioned in ROM
-#define StartDelay		  10			// delay to start measuring after spindle start
-#define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define Setpoint		  0.001
-#define RangeUp			  0.005		// if ratio > range up then motor left
-#define RangeDown		  -0.005
-#define StepDuration	  4			// sp1
-#define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
+#define ArraySize		  64		// average array length
+#define StartDelay		  10		// delay to start measuring after spindle start
+#define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
+#define Setpoint		  0.001		// ratio value for stop motor
+#define RangeUp			  0.005		// if ratio > range up then motor moves left
+#define RangeDown		  -0.005	// if ratio < range down then motor moves right
+#define StepDuration	  3			// work time of PWM to one step
+#define StepsInterval	  32		// interval between	steps
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -112,17 +116,19 @@ void Timer1(bool enable)
 
 void Timer2(bool enable)
 {
+	TCNT2 = 0;
+	OCR2A = 0; 
+	
 	if (enable)
 	{
+		TCCR2A = (1 << WGM21)|(1 << WGM20);
 		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
-		TIMSK2 = (1 << TOIE2);
-		TCNT2 = 0;
+		High(TIMSK2, TOIE2);
 		return;
 	}
 	
 	TCCR2B = 0x00;
-	Low(TIMSK2,TOIE2);
-	TCNT2 = 0;
+	Low(TIMSK2, TOIE2);
 }
 
 ISR(TIMER2_OVF_vect)
@@ -217,12 +223,9 @@ void Transmit()
 
 void Calculation()
 {	
-	Measure.Fa = ((float)TCNT0 + Measure.ovf*256.f)+2;
+	Measure.Fa = ((float)TCNT0 + Measure.ovf*256.f);
 	Measure.Fp = (float)TCNT1;
-	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
-	
-	Motor.stepsInterval = (unsigned short) 64/(fabs(Measure.d / Setpoint));
-	if (Motor.stepsInterval < 4) Motor.stepsInterval = 4;
+	Measure.d = Average(1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp), false);		
 }
 
 void Initialization()
@@ -259,6 +262,8 @@ void StartOrStop()
 	{
 		LedOff;
 		ImpOff;
+		PulseOff;
+		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
 		Average(0, true);
@@ -319,11 +324,20 @@ void Regulation()
 	
 	if (Motor.isDelay) return;
 	
-	if (Measure.d >= RangeUp) Motor.operation = Left;
-	else Motor.operation = Right;
+	if (Measure.d >= RangeUp) 
+	{
+		Motor.operation = Left;
+		OCR2A = 152;
+	}
+	else 
+	{
+		Motor.operation = Right;
+		OCR2A = 144;
+	}
 	
 	Motor.isStep = StepDuration;
 	Motor.isFirstPulse = true;
+	PulseOn;
 }
 
 void Process()
@@ -339,9 +353,14 @@ void Process()
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
 		if (Motor.isStep)
-		{
+		{	
 			Motor.isStep--;
-			if (!Motor.isStep) Motor.isDelay = Motor.stepsInterval;
+			
+			if (!Motor.isStep) 
+			{
+				Motor.isDelay = StepsInterval;
+				PulseOff;
+			}
 		}
 		
 		Regulation();
@@ -366,19 +385,19 @@ void Process()
 int main(void)
 {
 	Initialization();
-	
+
     while(1)
     {	
 		if (MainTimer.handle)
 		{	
 			if (Mode.startDelay) Mode.startDelay--;
-			
+
 			StartOrStop();
 			Process();
 			
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step();
+		//if (Motor.isStep) Step();
     }
 }
