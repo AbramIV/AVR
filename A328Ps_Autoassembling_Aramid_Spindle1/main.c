@@ -18,12 +18,12 @@
 #define ImpOff		Low(PORTB, PORTB0)
 #define ImpInv		Inv(PORTB, PORTB0)
 
-#define Fault		Check(PORTB, PORTB1) // output for open contact of yarn brake
+#define Fault		Check(PORTB, PORTB1)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB1)
 #define FaultOff	Low(PORTB, PORTB1)
 #define FaultInv	Inv(PORTB, PORTB1)
 
-#define Led			Check(PORTB, PORTB5) // operating led period = 1984 ms if not something wrong
+#define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
@@ -33,20 +33,20 @@
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
 
-#define Off				0
-#define On				1
-#define Init			2
+#define Off				  0
+#define On				  1
+#define Init			  2
 
-#define Right	 		10
-#define Left 			20
-#define Locked			30
+#define Right	 		  10
+#define Left 			  20
+#define Locked			  30
 	
 #define ArraySize		  64		// these parameters also should be positioned in ROM
-#define StartDelay		  5			// delay to start measuring after spindle start
+#define StartDelay		  10			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define Setpoint		  0.001
-#define RangeUp			  0.004		// if ratio > range up then motor left
-#define RangeDown		  -0.004
+#define RangeUp			  0.005		// if ratio > range up then motor left
+#define RangeDown		  -0.005
 #define StepDuration	  4			// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
@@ -217,7 +217,7 @@ void Transmit()
 
 void Calculation()
 {	
-	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
+	Measure.Fa = ((float)TCNT0 + Measure.ovf*256.f)+2;
 	Measure.Fp = (float)TCNT1;
 	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
 	
@@ -240,8 +240,6 @@ void Initialization()
 	USART(Init);
 	USART(On);
 	sei();
-	
-	wdt_enable(WDTO_1S);
 }
 
 void StartOrStop()
@@ -382,7 +380,5 @@ int main(void)
 		}
 		
 		if (Motor.isStep) Step();
-		
-		wdt_reset();
     }
 }

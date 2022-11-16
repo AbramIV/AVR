@@ -235,7 +235,7 @@ void Initialization()
 	USART(On);
 	sei();
 	
-	wdt_enable(WDTO_8S);
+	//wdt_enable(WDTO_8S);
 }
 
 void StartOrStop()
@@ -424,6 +424,6 @@ int main()
 		if (Motor.isStep) Step4();
 		if (Imp) ImpOff;
 		
-		wdt_reset();
+		//wdt_reset();
     }
 }
