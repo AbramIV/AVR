@@ -29,22 +29,21 @@
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
 
-#define Off				  0			// hardware features modes
+#define Off				  0				// hardware features modes
 #define On				  1
 #define Init			  2
 
-#define Right	 		  10	    // move directions of motor
+#define Right	 		  10			// move directions of motor
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  64		// average array length
-#define StartDelay		  10		// delay to start measuring after spindle start
-#define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  0.001		// ratio value for stop motor
-#define RangeUp			  0.005		// if ratio > range up then motor moves left
-#define RangeDown		  -0.005	// if ratio < range down then motor moves right
-#define StepDuration	  4			// work time of PWM to one step
-#define StepsInterval	  32		// interval between	steps
+#define ArraySize		  32			// average array length
+#define StartDelay		  10			// delay to start measuring after spindle start
+#define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
+#define Setpoint		  0.001			// ratio value for stop motor
+#define RangeUp			  0.005			// if ratio > range up then motor moves left
+#define RangeDown		  -0.005		// if ratio < range down then motor moves right
+#define StepDuration	  4				// work time of PWM to one step
 #define PulsesInterval	  3
 
 #include <xc.h>
@@ -59,7 +58,7 @@ struct TimeControl
 {
 	unsigned short ms;
 	bool handleS, handleMS;
-} MainTimer = { 0, false };
+} MainTimer = { 0, false, false };
 
 struct Data
 {
@@ -69,15 +68,15 @@ struct Data
 
 struct ModeControl
 {
-	unsigned short startDelay, faultDelay;
+	unsigned short startDelay, faultCounter;
 	bool fault, run;
-} Mode = { 0, FaultDelay, false, false };
+} Mode = { 0, 0, false, false };
 
 struct MotorControl
 {
-	unsigned short isDelay, isStep, operation, stepsInterval, pulseCounter; 
-	bool isFirstPulse;
-} Motor = { 0, 0, Locked, 0, false };
+	unsigned short isLow, isHigh, operation, stepsInterval, pulseCounter;
+	bool isStep; 
+} Motor = { 0, 0, Locked, 0, 0, false };
 
 void Timer0(bool enable)
 {
@@ -158,13 +157,6 @@ float Average(float difference, bool isReset)
 	return result / ArraySize;
 }
 
-void Calculation()
-{	
-	Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
-	Measure.Fp = (float)TCNT1;
-	Measure.d = Average(1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp), false);		
-}
-
 void Initialization()
 {
 	DDRB = 0b00111111;
@@ -180,14 +172,46 @@ void Initialization()
 	sei();
 }
 
-void StartOrStop()
+void SetDirection()
+{	
+	if (Motor.isStep) return;
+	
+	if (fabs(Measure.d) <= Setpoint)
+	{
+		Mode.faultCounter = 0;
+		Motor.operation = Locked;
+		return;
+	}
+	
+	if (Measure.d >= RangeUp) 
+	{
+		Motor.operation = Left;
+	}
+	else 
+	{
+		Motor.operation = Right;
+	}
+	
+	Motor.isStep = true;
+}
+
+void HandleAfterMS()
 {
+	
+}
+
+void HandleAfterS()
+{
+	if (Mode.startDelay) Mode.startDelay--;
+	if (Mode.faultCounter >= FaultDelay && !Mode.fault) Mode.fault = true;
+	if (Mode.fault && !Fault) FaultOn; 
+	
 	if (Running && !Mode.run)
 	{
 		FaultOff;
 		Mode.run = true;
 		Mode.startDelay = StartDelay;
-		Mode.faultDelay = FaultDelay;
+		Mode.faultCounter = 0;
 		Mode.fault = false;
 		Timer0(true);
 		Timer1(true);
@@ -197,102 +221,33 @@ void StartOrStop()
 	{
 		LedOff;
 		ImpOff;
-		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
 		Average(0, true);
 		Measure.Fa = 0;
 		Measure.Fp = 0;
 		Measure.d = 0;
+		Mode.startDelay = 0;
 		Mode.run = false;
 		Mode.fault = false;
-		Mode.faultDelay = FaultDelay;
-		Mode.startDelay = 0;
+		Mode.faultCounter = 0;
 		Motor.operation = Locked;
 	}
-}
-
-void Regulation()
-{
-	if (Motor.isStep) return;
 	
-	if (fabs(Measure.d) <= Setpoint)
-	{
-		Mode.faultDelay = FaultDelay;
-		Motor.operation = Locked;
-		return;
-	}
-	
-	if (Motor.isDelay) return;
-	
-	if (Measure.d >= RangeUp) 
-	{
-		Motor.operation = Left;
-		//Motor.pulseCounter = 
-	}
-	else 
-	{
-		Motor.operation = Right;
-	}
-	
-	Motor.isStep = StepDuration;
-	Motor.isFirstPulse = true;
-}
-
-void Process()
-{
 	if (Mode.run && !Mode.startDelay)
 	{
 		LedInv;
 		
-		Calculation();
+		Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
+		Measure.Fp = (float)TCNT1;
+		Measure.d = Average(1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp), false);
 		
-		if (Motor.isDelay > 0) Motor.isDelay--;
-		
-		if (Motor.isStep)
-		{	
-			Motor.isStep--;
-			
-			if (!Motor.isStep) 
-			{
-				Motor.isDelay = StepsInterval;
-			}
-		}
-		
-		Regulation();
-
-		if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
-		
-		if (!Mode.faultDelay && !Mode.fault)
-		{
-			FaultOn;
-			Mode.fault = true;
-		}
+		SetDirection();
 	}
-	
-	if (Mode.run)
-	{
-		TCNT0 = 0;
-		TCNT1 = 0;
-		Measure.ovf = 0;
-	}
-}
 
-void StepControl()
-{
-	if (Motor.pulseCounter) 
-	{
-		Motor.pulseCounter--;
-		
-		if (!Motor.pulseCounter) 
-		{
-			if (Imp) 
-			{
-				ImpOff;
-				//Motor.stepsInterval
-			}
-		}
-	} 
+	TCNT0 = 0;
+	TCNT1 = 0;
+	Measure.ovf = 0;
 }
 							   					
 int main(void)
@@ -303,19 +258,13 @@ int main(void)
     {	
 		if (MainTimer.handleMS)
 		{
-			StepControl();
-			MainTimer.handleMS = 0;
+			HandleAfterMS();
+			MainTimer.handleMS = false;
 		}
 		
 		if (MainTimer.handleS)
 		{	
-			if (Motor.pulseCounter) Motor.pulseCounter--;
-			
-			if (Mode.startDelay) Mode.startDelay--;
-
-			StartOrStop();
-			Process();
-			
+			HandleAfterS();
 			MainTimer.handleS = false;
 		}
     }
