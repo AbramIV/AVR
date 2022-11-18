@@ -45,14 +45,13 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  64		// average array length
+#define ArraySize		  32		// average array length
 #define StartDelay		  10		// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  0.001		// ratio value for stop motor
-#define RangeUp			  0.005		// if ratio > range up then motor moves left
-#define RangeDown		  -0.005	// if ratio < range down then motor moves right
+#define RangeUp			  0.006		// if ratio > range up then motor moves left
+#define RangeDown		  -0.006	// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
-#define StepsInterval	  32		// interval between	steps
+#define StepsInterval	  16		// interval between	steps
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -144,83 +143,40 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 130;
 }
 
-void USART(unsigned short option)
+float MovAvgAramid(float value)
 {
-	switch (option)
-	{
-		case On:
-		UCSR0B |= (1 << TXEN0);
-		break;
-		case Off:
-		UCSR0B |= (0 << TXEN0);
-		break;
-		default:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-		UBRR0  =  3;
-		break;
-	}
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
-}
-
-float Average(float difference, bool isReset)
-{
-	static float values[ArraySize] = { 0 };
-	static int index = 0;
+	static unsigned short index = 0;
+	static float array[ArraySize] = { 0 };
 	static float result = 0;
 	
-	if (isReset)
-	{
-		for (int i = 0; i<ArraySize; i++) values[i] = 0;
-		index = 0;
-		result = 0;
-		return 0;
-	}
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % ArraySize;
 	
-	if (++index >= ArraySize) index = 0;
-	
-	result -= values[index];
-	result += difference;
-	values[index] = difference;
-	
-	return result / ArraySize;
+	return result/ArraySize;
 }
 
-void Transmit()
+float MovAvgPolyamide(float value)
 {
-	 static char fa[10] = { 0 }, fp[10] = { 0 }, d[10] = { 0 }, i[8] = { 0 };
-	 static char buffer[64] = { 0 };
+	static unsigned short index = 0;
+	static float array[ArraySize] = { 0 };
+	static float result = 0;
 	
-	 sprintf(fa, "A%.1f$", Measure.Fa);
-	 sprintf(fp, "P%.1f$", Measure.Fp);
-	 sprintf(d, "D%.3f$",  Measure.d);
-	 sprintf(i, "I%d$",  Motor.stepsInterval);
-	 
-	 strcat(buffer, fa);
-	 strcat(buffer, fp);
-	 strcat(buffer, d);
-	 strcat(buffer, i);
-	 
-	 TxString(buffer);
-	 
-	 for (int i=0; i<64; i++) buffer[i] = 0;
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % ArraySize;
+	
+	return result/ArraySize;
 }
 
 void Calculation()
 {	
-	Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
-	Measure.Fp = (float)TCNT1;
-	Measure.d = Average(1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp), false);		
+	float a, p = 0;
+	
+	a = ((256.f*Measure.ovf+TCNT0)/100)*0.08796;
+	p =	TCNT1*0.08796;
+	Measure.Fa = MovAvgAramid(a); // (1.2096774 * 0.0848 = 0.10258
+	Measure.Fp = MovAvgPolyamide(p); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
 }
 
 void Initialization()
@@ -235,8 +191,6 @@ void Initialization()
 	PORTD = 0b00000011;
 	
 	Timer2(true);
-	USART(Init);
-	USART(On);
 	sei();
 }
 
@@ -261,7 +215,6 @@ void StartOrStop()
 		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
-		Average(0, true);
 		Measure.Fa = 0;
 		Measure.Fp = 0;
 		Measure.d = 0;
@@ -273,44 +226,11 @@ void StartOrStop()
 	}
 }
 
-void Step()
-{
-	ImpOn;
-	
-	if (Motor.operation == Right) 
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(2);
-			Motor.isFirstPulse = false;
-			return;
-		}
-		
-		_delay_us(500);
-	}
-	
-	if (Motor.operation == Left) 
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(5);
-			Motor.isFirstPulse = false;
-			return;
-		}
-		
-		_delay_ms(5);
-	}
-
-	ImpOff;
-	
-	_delay_ms(5);
-}
-
 void Regulation()
 {
 	if (Motor.isStep) return;
 	
-	if (fabs(Measure.d) <= Setpoint)
+	if (Measure.d >= RangeDown && Measure.d <= RangeUp)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -342,8 +262,6 @@ void Process()
 		LedInv;
 		
 		Calculation();
-		
-		if (TxEnable) Transmit();
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
@@ -392,7 +310,5 @@ int main(void)
 			
 			MainTimer.handle = false;
 		}
-		
-		//if (Motor.isStep) Step();
     }
 }
