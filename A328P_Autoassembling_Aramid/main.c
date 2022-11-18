@@ -463,6 +463,8 @@ int main(void)
 {		
 	Initialization();
 	
+	
+	
 	while(1)
 	{
 		ModeControl();

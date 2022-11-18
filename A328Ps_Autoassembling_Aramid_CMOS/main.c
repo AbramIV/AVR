@@ -1,12 +1,9 @@
 /*
  * main.c
  *
- * Created: 6/4/2022 7:34:54 PM
+ * Created: 11/18/2022 12:57:15 PM
  *  Author: igor.abramov
- * k = Tcount*0.028*Pi*60/100
- * PWM 14 % OCR2A = 144; 
- * PWM 18 % OCR2A = 152; 
- */ 
+ */  
 			
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -28,14 +25,9 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define TxEnable 	Check(PIND, PIND2)	// if connected every sec data transmit
 #define Running		Check(PIND, PIND3)  // spindle run input
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
-
-#define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
-#define PulseOn		High(TCCR2A, COM2A1)
-#define PulseOff	Low(TCCR2A, COM2A1)
 
 #define Off				  0			// hardware features modes
 #define On				  1
@@ -53,6 +45,7 @@
 #define RangeDown		  -0.005	// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
 #define StepsInterval	  32		// interval between	steps
+#define PulsesInterval	  3
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -65,7 +58,7 @@
 struct TimeControl
 {
 	unsigned short ms;
-	bool handle;
+	bool handleS, handleMS;
 } MainTimer = { 0, false };
 
 struct Data
@@ -82,7 +75,7 @@ struct ModeControl
 
 struct MotorControl
 {
-	unsigned short isDelay, isStep, operation, stepsInterval; 
+	unsigned short isDelay, isStep, operation, stepsInterval, pulseCounter; 
 	bool isFirstPulse;
 } Motor = { 0, 0, Locked, 0, false };
 
@@ -116,12 +109,10 @@ void Timer1(bool enable)
 
 void Timer2(bool enable)
 {
-	TCNT2 = 0;
-	OCR2A = 0; 
+	TCNT2 = 0; 
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);
 		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
 		High(TIMSK2, TOIE2);
 		return;
@@ -137,40 +128,11 @@ ISR(TIMER2_OVF_vect)
 
 	if (MainTimer.ms >= 1000)
 	{
-		MainTimer.handle = true;
+		MainTimer.handleS = true;
 		MainTimer.ms = 0;
 	}
-	
+
 	TCNT2 = 130;
-}
-
-void USART(unsigned short option)
-{
-	switch (option)
-	{
-		case On:
-		UCSR0B |= (1 << TXEN0);
-		break;
-		case Off:
-		UCSR0B |= (0 << TXEN0);
-		break;
-		default:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-		UBRR0  =  3;
-		break;
-	}
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
 float Average(float difference, bool isReset)
@@ -196,26 +158,6 @@ float Average(float difference, bool isReset)
 	return result / ArraySize;
 }
 
-void Transmit()
-{
-	 static char fa[10] = { 0 }, fp[10] = { 0 }, d[10] = { 0 }, i[8] = { 0 };
-	 static char buffer[64] = { 0 };
-	
-	 sprintf(fa, "A%.1f$", Measure.Fa);
-	 sprintf(fp, "P%.1f$", Measure.Fp);
-	 sprintf(d, "D%.3f$",  Measure.d);
-	 sprintf(i, "I%d$",  Motor.stepsInterval);
-	 
-	 strcat(buffer, fa);
-	 strcat(buffer, fp);
-	 strcat(buffer, d);
-	 strcat(buffer, i);
-	 
-	 TxString(buffer);
-	 
-	 for (int i=0; i<64; i++) buffer[i] = 0;
-}
-
 void Calculation()
 {	
 	Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
@@ -235,8 +177,6 @@ void Initialization()
 	PORTD = 0b00000011;
 	
 	Timer2(true);
-	USART(Init);
-	USART(On);
 	sei();
 }
 
@@ -257,7 +197,6 @@ void StartOrStop()
 	{
 		LedOff;
 		ImpOff;
-		PulseOff;
 		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
@@ -271,39 +210,6 @@ void StartOrStop()
 		Mode.startDelay = 0;
 		Motor.operation = Locked;
 	}
-}
-
-void Step()
-{
-	ImpOn;
-	
-	if (Motor.operation == Right) 
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(2);
-			Motor.isFirstPulse = false;
-			return;
-		}
-		
-		_delay_us(500);
-	}
-	
-	if (Motor.operation == Left) 
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(5);
-			Motor.isFirstPulse = false;
-			return;
-		}
-		
-		_delay_ms(5);
-	}
-
-	ImpOff;
-	
-	_delay_ms(5);
 }
 
 void Regulation()
@@ -322,17 +228,15 @@ void Regulation()
 	if (Measure.d >= RangeUp) 
 	{
 		Motor.operation = Left;
-		OCR2A = 140;
+		//Motor.pulseCounter = 
 	}
 	else 
 	{
 		Motor.operation = Right;
-		OCR2A = 133;
 	}
 	
 	Motor.isStep = StepDuration;
 	Motor.isFirstPulse = true;
-	PulseOn;
 }
 
 void Process()
@@ -343,8 +247,6 @@ void Process()
 		
 		Calculation();
 		
-		if (TxEnable) Transmit();
-		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
 		if (Motor.isStep)
@@ -354,7 +256,6 @@ void Process()
 			if (!Motor.isStep) 
 			{
 				Motor.isDelay = StepsInterval;
-				PulseOff;
 			}
 		}
 		
@@ -376,6 +277,23 @@ void Process()
 		Measure.ovf = 0;
 	}
 }
+
+void StepControl()
+{
+	if (Motor.pulseCounter) 
+	{
+		Motor.pulseCounter--;
+		
+		if (!Motor.pulseCounter) 
+		{
+			if (Imp) 
+			{
+				ImpOff;
+				//Motor.stepsInterval
+			}
+		}
+	} 
+}
 							   					
 int main(void)
 {
@@ -383,16 +301,22 @@ int main(void)
 
     while(1)
     {	
-		if (MainTimer.handle)
+		if (MainTimer.handleMS)
+		{
+			StepControl();
+			MainTimer.handleMS = 0;
+		}
+		
+		if (MainTimer.handleS)
 		{	
+			if (Motor.pulseCounter) Motor.pulseCounter--;
+			
 			if (Mode.startDelay) Mode.startDelay--;
 
 			StartOrStop();
 			Process();
 			
-			MainTimer.handle = false;
+			MainTimer.handleS = false;
 		}
-		
-		//if (Motor.isStep) Step();
     }
 }

@@ -581,15 +581,15 @@ void Step(short direction)
 	
 	if (direction) 
 	{
-		_delay_us(500);  // invert - 800 us   // direct 1 ms
+		_delay_ms(12);  // invert - 800 us   // direct 1 ms
 		ImpOff;
-		_delay_ms(5);
+		_delay_ms(1);
 		return;
 	}
 	
-	_delay_ms(5);
+	_delay_ms(1);
 	ImpOff;
-	_delay_ms(5);
+	_delay_ms(12);
 }
 
 void Control()
