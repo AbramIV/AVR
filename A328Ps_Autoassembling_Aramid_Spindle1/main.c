@@ -67,23 +67,18 @@ struct TimeControl
 	bool handle;
 } MainTimer = { 0, false };
 
-struct Data
-{
-	unsigned short ovf;
-	float Fa, Fp, d;
-} Measure = { 0, 0, 0, 0 };
-
 struct ModeControl
 {
 	unsigned short startDelay, faultDelay;
 	bool fault, run;
-} Mode = { 0, FaultDelay, false, false };
+} Mode = { 0, FaultDelay, false, true };
 
 struct MotorControl
 {
 	unsigned short isDelay, isStep, operation, stepsInterval; 
-	bool isFirstPulse;
-} Motor = { 0, 0, Locked, 0, false };
+} Motor = { 0, 0, Locked, 0 };
+
+unsigned short overflow = 0;
 
 void Timer0(bool enable)
 {
@@ -99,7 +94,7 @@ void Timer0(bool enable)
 
 ISR(TIMER0_OVF_vect)
 {
-	Measure.ovf++;
+	overflow++;
 }
 
 void Timer1(bool enable)
@@ -143,11 +138,64 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 130;
 }
 
-float MovAvgAramid(float value)
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+		UCSR0B |= (1 << TXEN0);
+		break;
+		case Off:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit(float a, float p, float r)
+{
+	static char fa[10] = { 0 }, fp[10] = { 0 }, r1[10] = { 0 };
+	static char buffer[32] = { 0 };
+	
+	sprintf(fa, "A%.1f$", a);
+	sprintf(fp, "P%.1f$", p);
+	sprintf(r1, "R%.3f$", r);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
+	strcat(buffer, r1);
+	TxString(buffer);
+	
+	for (int i=0; i<16; i++) buffer[i] = 0;
+}
+
+float MovAvgAramid(float value, bool clear)
 {
 	static unsigned short index = 0;
 	static float array[ArraySize] = { 0 };
 	static float result = 0;
+	
+	if (clear)
+	{
+		for (short i=0; i<ArraySize; i++) array[i] = 0;
+		index = 0;
+		result = 0;
+		return 0;
+	}
 	
 	result += value - array[index];
 	array[index] = value;
@@ -156,27 +204,25 @@ float MovAvgAramid(float value)
 	return result/ArraySize;
 }
 
-float MovAvgPolyamide(float value)
+float MovAvgPolyamide(float value, bool clear)
 {
 	static unsigned short index = 0;
 	static float array[ArraySize] = { 0 };
 	static float result = 0;
+	
+	if (clear)
+	{
+		for (short i=0; i<ArraySize; i++) array[i] = 0;
+		index = 0;
+		result = 0;
+		return 0;
+	}
 	
 	result += value - array[index];
 	array[index] = value;
 	index = (index + 1) % ArraySize;
 	
 	return result/ArraySize;
-}
-
-void Calculation()
-{	
-	float a, p = 0;
-	
-	a = ((256.f*Measure.ovf+TCNT0)/100)*0.08796;
-	p =	TCNT1*0.08796;
-	Measure.Fa = MovAvgAramid(a); // (1.2096774 * 0.0848 = 0.10258
-	Measure.Fp = MovAvgPolyamide(p); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
 }
 
 void Initialization()
@@ -191,6 +237,8 @@ void Initialization()
 	PORTD = 0b00000011;
 	
 	Timer2(true);
+	//USART(Init);
+	//USART(On);
 	sei();
 }
 
@@ -210,14 +258,13 @@ void StartOrStop()
 	if (!Running && Mode.run)
 	{
 		LedOff;
-		ImpOff;
 		PulseOff;
 		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
-		Measure.Fa = 0;
-		Measure.Fp = 0;
-		Measure.d = 0;
+		MovAvgAramid(0, true);
+		MovAvgPolyamide(0, true);
+		overflow = 0;
 		Mode.run = false;
 		Mode.fault = false;
 		Mode.faultDelay = FaultDelay;
@@ -226,11 +273,11 @@ void StartOrStop()
 	}
 }
 
-void Regulation()
+void SetDirection(float ratio)
 {
 	if (Motor.isStep) return;
 	
-	if (Measure.d >= RangeDown && Measure.d <= RangeUp)
+	if (ratio >= RangeDown && ratio <= RangeUp)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -239,7 +286,7 @@ void Regulation()
 	
 	if (Motor.isDelay) return;
 	
-	if (Measure.d >= RangeUp) 
+	if (ratio >= RangeUp) 
 	{
 		Motor.operation = Left;
 		OCR2A = 140;
@@ -251,17 +298,22 @@ void Regulation()
 	}
 	
 	Motor.isStep = StepDuration;
-	Motor.isFirstPulse = true;
 	PulseOn;
 }
 
 void Process()
 {
+	static float Ua = 0, Up = 0, ratio = 0;
+	
 	if (Mode.run && !Mode.startDelay)
 	{
 		LedInv;
 		
-		Calculation();
+		Ua = MovAvgAramid(256*overflow+TCNT0, false);
+		Up = MovAvgPolyamide(TCNT1*0.997, false);
+		ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
+		
+		//Transmit(Ua, Up, ratio);
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
@@ -276,7 +328,7 @@ void Process()
 			}
 		}
 		
-		Regulation();
+		SetDirection(ratio);
 
 		if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
 		
@@ -291,7 +343,7 @@ void Process()
 	{
 		TCNT0 = 0;
 		TCNT1 = 0;
-		Measure.ovf = 0;
+		overflow = 0;
 	}
 }
 							   					
