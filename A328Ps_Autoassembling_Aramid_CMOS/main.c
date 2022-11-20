@@ -3,17 +3,15 @@
  *
  * Created: 11/18/2022 12:57:15 PM
  *  Author: igor.abramov
+ * OCR2A min 132 - 0.13 us - 1.6 %
+ * OCR2A max 254 - 8 ms - 99.2 %   
+ * flip-flop T ~ 6.8 ms
  */  
 			
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))
-
-#define Imp			Check(PORTB, PORTB0)	// control pulses of motor
-#define ImpOn		High(PORTB, PORTB0)
-#define ImpOff		Low(PORTB, PORTB0)
-#define ImpInv		Inv(PORTB, PORTB0)
 
 #define Fault		Check(PORTB, PORTB1)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB1)
@@ -26,8 +24,12 @@
 #define LedInv		Inv(PORTB, PORTB5)
  
 #define Running		Check(PIND, PIND3)  // spindle run input
-#define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
-#define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
+#define InputF1		Check(PIND, PIND4)  // T0 speed pulses input
+#define InputF2		Check(PIND, PIND5)  // T1 speed pulses input
+
+#define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
+#define PulseOn		High(TCCR2A, COM2A1)
+#define PulseOff	Low(TCCR2A, COM2A1)
 
 #define Off				  0				// hardware features modes
 #define On				  1
@@ -38,13 +40,13 @@
 #define Locked			  30
 	
 #define ArraySize		  32			// average array length
-#define StartDelay		  10			// delay to start measuring after spindle start
+#define StartDelay		  10				// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  0.001			// ratio value for stop motor
-#define RangeUp			  0.005			// if ratio > range up then motor moves left
-#define RangeDown		  -0.005		// if ratio < range down then motor moves right
-#define StepDuration	  4				// work time of PWM to one step
-#define PulsesInterval	  3
+#define Setpoint		  0.003			// ratio value for stop motor
+#define RangeUp			  0.006			// if ratio > range up then motor moves left
+#define RangeDown		  -0.006		// if ratio < range down then motor moves right
+#define StepDuration	  3				// work time of PWM to one step
+#define StepsInterval	  4				// interval between steps
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -54,29 +56,8 @@
 #include <string.h>
 #include <avr/wdt.h>
 
-struct TimeControl
-{
-	unsigned short ms;
-	bool handleS, handleMS;
-} MainTimer = { 0, false, false };
-
-struct Data
-{
-	unsigned short ovf;
-	float Fa, Fp, d;
-} Measure = { 0, 0, 0, 0 };
-
-struct ModeControl
-{
-	unsigned short startDelay, faultCounter;
-	bool fault, run;
-} Mode = { 0, 0, false, false };
-
-struct MotorControl
-{
-	unsigned short isLow, isHigh, operation, stepsInterval, pulseCounter;
-	bool isStep; 
-} Motor = { 0, 0, Locked, 0, 0, false };
+volatile unsigned short ms8 = 0, overflowCount = 0;
+volatile bool handleAfterSecond = false;
 
 void Timer0(bool enable)
 {
@@ -92,7 +73,7 @@ void Timer0(bool enable)
 
 ISR(TIMER0_OVF_vect)
 {
-	Measure.ovf++;
+	overflowCount++;
 }
 
 void Timer1(bool enable)
@@ -112,7 +93,8 @@ void Timer2(bool enable)
 	
 	if (enable)
 	{
-		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
+		TCCR2A = (1 << WGM21)|(1 << WGM20);
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
 		High(TIMSK2, TOIE2);
 		return;
 	}
@@ -123,42 +105,34 @@ void Timer2(bool enable)
 
 ISR(TIMER2_OVF_vect)
 {	
-	MainTimer.ms++;
+	ms8++;
 
-	if (MainTimer.ms >= 1000)
+	if (ms8 >= 125)
 	{
-		MainTimer.handleS = true;
-		MainTimer.ms = 0;
+		handleAfterSecond = true;
+		ms8 = 0;
 	}
 
-	TCNT2 = 130;
+	TCNT2 = 131;
 }
 
-float Average(float difference, bool isReset)
+float Average(float value)
 {
-	static float values[ArraySize] = { 0 };
-	static int index = 0;
+	static unsigned short index = 0;
+	static float array[ArraySize] = { 0 };
 	static float result = 0;
 	
-	if (isReset)
-	{
-		for (int i = 0; i<ArraySize; i++) values[i] = 0;
-		index = 0;
-		result = 0;
-		return 0;
-	}
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % ArraySize;
 	
-	if (++index >= ArraySize) index = 0;
-	
-	result -= values[index];
-	result += difference;
-	values[index] = difference;
-	
-	return result / ArraySize;
+	return result/ArraySize;
 }
 
 void Initialization()
 {
+	wdt_disable();
+	
 	DDRB = 0b00111111;
 	PORTB = 0b00000000;
 	
@@ -168,104 +142,139 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
 	
+	for (int i = 0; i<ArraySize; i++) Average(0);
+
 	Timer2(true);
 	sei();
+	
+	wdt_enable(WDTO_1S);
 }
 
-void SetDirection()
+void SetDirection(float ratio)
 {	
-	if (Motor.isStep) return;
+	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
-	if (fabs(Measure.d) <= Setpoint)
+	if (fabs(ratio) <= Setpoint)
 	{
-		Mode.faultCounter = 0;
-		Motor.operation = Locked;
+		PulseOff;
+		if (faultCounter > 0) faultCounter = 0;
+		motorState = Locked;
+		stepCount = 0;
+		stepsInterval = 0;
 		return;
 	}
 	
-	if (Measure.d >= RangeUp) 
+	if (stepCount)
 	{
-		Motor.operation = Left;
+		stepCount--;
+		if (stepCount < 1)
+		{
+			PulseOff;
+			stepsInterval = StepsInterval;
+		}
+			
+		return;
+	}
+		
+	if (stepsInterval)
+	{
+		stepsInterval--;
+		return;
+	}
+	
+	faultCounter++;
+	
+	if (faultCounter > FaultDelay) 
+	{
+		FaultOn;
+		PulseOff;
+		faultCounter = 0;
+		motorState = Locked;
+		return;
+	}
+	
+	if (ratio >= RangeUp) 
+	{
+		if (motorState != Right) 
+		{
+			OCR2A = 132;
+			motorState = Right;
+		}
 	}
 	else 
 	{
-		Motor.operation = Right;
+		if (motorState != Left)
+		{
+			OCR2A = 254;
+			motorState = Left;
+		}
 	}
 	
-	Motor.isStep = true;
-}
-
-void HandleAfterMS()
-{
-	
-}
-
-void HandleAfterS()
-{
-	if (Mode.startDelay) Mode.startDelay--;
-	if (Mode.faultCounter >= FaultDelay && !Mode.fault) Mode.fault = true;
-	if (Mode.fault && !Fault) FaultOn; 
-	
-	if (Running && !Mode.run)
-	{
-		FaultOff;
-		Mode.run = true;
-		Mode.startDelay = StartDelay;
-		Mode.faultCounter = 0;
-		Mode.fault = false;
-		Timer0(true);
-		Timer1(true);
-	}
-	
-	if (!Running && Mode.run)
-	{
-		LedOff;
-		ImpOff;
-		Timer0(false);
-		Timer1(false);
-		Average(0, true);
-		Measure.Fa = 0;
-		Measure.Fp = 0;
-		Measure.d = 0;
-		Mode.startDelay = 0;
-		Mode.run = false;
-		Mode.fault = false;
-		Mode.faultCounter = 0;
-		Motor.operation = Locked;
-	}
-	
-	if (Mode.run && !Mode.startDelay)
-	{
-		LedInv;
-		
-		Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
-		Measure.Fp = (float)TCNT1;
-		Measure.d = Average(1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp), false);
-		
-		SetDirection();
-	}
-
-	TCNT0 = 0;
-	TCNT1 = 0;
-	Measure.ovf = 0;
+	PulseOn;
+	stepCount = StepDuration;
 }
 							   					
 int main(void)
 {
+	static float f1 = 0, f2 = 0;
+	static unsigned short startDelay = StartDelay, measureFaultCount = 0;
+	static bool run = false;
+	
 	Initialization();
 
     while(1)
-    {	
-		if (MainTimer.handleMS)
-		{
-			HandleAfterMS();
-			MainTimer.handleMS = false;
+    {			
+		if (handleAfterSecond)
+		{			
+			if (Running && !run)
+			{
+				if (Fault) FaultOff;
+				run = true;
+				startDelay = StartDelay;
+				Timer0(true);
+				Timer1(true);
+			}
+			
+			if (!Running && run)
+			{
+				LedOff;
+				Timer0(false);
+				Timer1(false);
+				for (int i = 0; i<ArraySize; i++) Average(0);
+				measureFaultCount = 0;
+				startDelay = 0;
+				run = false;
+				f1 = 0;
+				f2 = 0;
+			}
+			
+			if (run && !startDelay)
+			{
+				LedInv;
+
+				f1 = TCNT0 + overflowCount*256.f;
+				f2 = TCNT1;
+				
+				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));
+				
+				if (f1 < 10 || f2 < 10)	measureFaultCount++;
+				
+				if (measureFaultCount >= 100)
+				{
+					FaultOn;
+					PulseOff;
+					SetDirection(0);
+				}
+			}
+			
+			if (startDelay) startDelay--;
+
+			TCNT0 = 0;
+			TCNT1 = 0;
+			overflowCount = 0;
+			handleAfterSecond = false;
 		}
 		
-		if (MainTimer.handleS)
-		{	
-			HandleAfterS();
-			MainTimer.handleS = false;
-		}
+		wdt_reset();
     }
 }
