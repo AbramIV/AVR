@@ -23,7 +23,7 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define Running		Check(PIND, PIND3)  // spindle run input
+#define Running		(!Check(PIND, PIND3))  // spindle run input
 #define InputF1		Check(PIND, PIND4)  // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)  // T1 speed pulses input
 
@@ -56,7 +56,8 @@
 #include <string.h>
 #include <avr/wdt.h>
 
-volatile unsigned short ms8 = 0, overflowCount = 0;
+volatile unsigned short timer0_overflowCount = 0;
+volatile unsigned short timer2_overflowCount = 0;
 volatile bool handleAfterSecond = false;
 
 void Timer0(bool enable)
@@ -73,7 +74,7 @@ void Timer0(bool enable)
 
 ISR(TIMER0_OVF_vect)
 {
-	overflowCount++;
+	timer0_overflowCount++;
 }
 
 void Timer1(bool enable)
@@ -105,12 +106,12 @@ void Timer2(bool enable)
 
 ISR(TIMER2_OVF_vect)
 {	
-	ms8++;
+	timer2_overflowCount++;
 
-	if (ms8 >= 125)
+	if (timer2_overflowCount >= 125)
 	{
 		handleAfterSecond = true;
-		ms8 = 0;
+		timer2_overflowCount = 0;
 	}
 
 	TCNT2 = 131;
@@ -133,14 +134,14 @@ void Initialization()
 {
 	wdt_disable();
 	
-	DDRB = 0b00111111;
-	PORTB = 0b00000000;
+	DDRB = 0b00101010;
+	PORTB = 0b11010101;
 	
-	DDRC = 0b00111111;
-	PORTC = 0b11000000;
+	DDRC = 0b00000000;
+	PORTC = 0b11111111;
 	
-	DDRD = 0b00000010;
-	PORTD = 0b00000011;
+	DDRD = 0b00000000;
+	PORTD = 0b11111111;
 	
 	for (int i = 0; i<ArraySize; i++) Average(0);
 
@@ -252,7 +253,7 @@ int main(void)
 			{
 				LedInv;
 
-				f1 = TCNT0 + overflowCount*256.f;
+				f1 = TCNT0 + timer0_overflowCount*256.f;
 				f2 = TCNT1;
 				
 				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));
@@ -271,7 +272,7 @@ int main(void)
 
 			TCNT0 = 0;
 			TCNT1 = 0;
-			overflowCount = 0;
+			timer0_overflowCount = 0;
 			handleAfterSecond = false;
 		}
 		
