@@ -13,19 +13,33 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))
 
-#define Fault		Check(PORTB, PORTB1)	// output for open contact of yarn brake
-#define FaultOn		High(PORTB, PORTB1)
-#define FaultOff	Low(PORTB, PORTB1)
-#define FaultInv	Inv(PORTB, PORTB1)
+#define RightLed	Check(PORTB, PORTB0)	// if f1 < f2 - led on else off
+#define RightLedOn	High(PORTB, PORTB0)
+#define RightLedOff	Low(PORTB, PORTB0)
 
-#define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
+#define LeftLed		Check(PORTB, PORTB1)	// if f1 > f2 - led on else off
+#define LeftLedOn	High(PORTB, PORTB1)
+#define LeftLedOff	Low(PORTB, PORTB1)
+
+#define FaultLed	Check(PORTB, PORTB2)	// if fault - led on before next start or reset
+#define FaultLedOn	High(PORTB, PORTB2)
+#define FaultLedOff	Low(PORTB, PORTB2)
+
+#define PulsePin	Check(PORTB, PORTB3)	// PWM pin
+
+#define Fault		Check(PORTB, PORTB4)	// output for open contact of yarn brake
+#define FaultOn		High(PORTB, PORTB4)
+#define FaultOff	Low(PORTB, PORTB4)
+#define FaultInv	Inv(PORTB, PORTB4)
+
+#define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
 #define Running		(!Check(PIND, PIND3))  // spindle run input
-#define InputF1		Check(PIND, PIND4)  // T0 speed pulses input
-#define InputF2		Check(PIND, PIND5)  // T1 speed pulses input
+#define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
+#define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
 
 #define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
 #define PulseOn		High(TCCR2A, COM2A1)
@@ -40,13 +54,14 @@
 #define Locked			  30
 	
 #define ArraySize		  32			// average array length
-#define StartDelay		  10				// delay to start measuring after spindle start
+#define StartDelay		  10			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  0.003			// ratio value for stop motor
 #define RangeUp			  0.006			// if ratio > range up then motor moves left
 #define RangeDown		  -0.006		// if ratio < range down then motor moves right
-#define StepDuration	  3				// work time of PWM to one step
+#define StepDuration	  3				// work time of PWM to one step (roughly)
 #define StepsInterval	  4				// interval between steps
+#define MeasureFaultLimit 100
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -134,8 +149,8 @@ void Initialization()
 {
 	wdt_disable();
 	
-	DDRB = 0b00101010;
-	PORTB = 0b11010101;
+	DDRB = 0b00111111;
+	PORTB = 0b00000000;
 	
 	DDRC = 0b00000000;
 	PORTC = 0b11111111;
@@ -158,6 +173,8 @@ void SetDirection(float ratio)
 	if (fabs(ratio) <= Setpoint)
 	{
 		PulseOff;
+		RightLedOff;
+		LeftLedOff;
 		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
@@ -189,6 +206,7 @@ void SetDirection(float ratio)
 	{
 		FaultOn;
 		PulseOff;
+		FaultLedOn;
 		faultCounter = 0;
 		motorState = Locked;
 		return;
@@ -200,6 +218,8 @@ void SetDirection(float ratio)
 		{
 			OCR2A = 132;
 			motorState = Right;
+			RightLedOn;
+			LeftLedOff;
 		}
 	}
 	else 
@@ -208,6 +228,8 @@ void SetDirection(float ratio)
 		{
 			OCR2A = 254;
 			motorState = Left;
+			LeftLedOn;
+			RightLedOff;
 		}
 	}
 	
@@ -218,7 +240,7 @@ void SetDirection(float ratio)
 int main(void)
 {
 	static float f1 = 0, f2 = 0;
-	static unsigned short startDelay = StartDelay, measureFaultCount = 0;
+	static unsigned short startDelay = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
 	static bool run = false;
 	
 	Initialization();
@@ -229,7 +251,9 @@ int main(void)
 		{			
 			if (Running && !run)
 			{
-				if (Fault) FaultOff;
+				FaultLedOff;
+				RightLedOff;
+				LeftLedOff;
 				run = true;
 				startDelay = StartDelay;
 				Timer0(true);
@@ -239,10 +263,12 @@ int main(void)
 			if (!Running && run)
 			{
 				LedOff;
+				if (Fault) FaultOff;
 				Timer0(false);
 				Timer1(false);
 				for (int i = 0; i<ArraySize; i++) Average(0);
-				measureFaultCount = 0;
+				f1_measureFaults = 0;
+				f2_measureFaults = 0;
 				startDelay = 0;
 				run = false;
 				f1 = 0;
@@ -258,13 +284,16 @@ int main(void)
 				
 				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));
 				
-				if (f1 < 10 || f2 < 10)	measureFaultCount++;
+				if (f1 < 10) f1_measureFaults++;
+				if (f2 < 10) f2_measureFaults++;	
 				
-				if (measureFaultCount >= 100)
+				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
 				{
 					FaultOn;
 					PulseOff;
+					FaultLedOn;
 					SetDirection(0);
+					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn;
 				}
 			}
 			
