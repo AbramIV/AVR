@@ -8,10 +8,10 @@
  * flip-flop T ~ 6.8 ms
  */  
 			
-#define Check(REG,BIT) (REG & (1<<BIT))
-#define Inv(REG,BIT)   (REG ^= (1<<BIT))
-#define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= ~(1<<BIT))
+#define Check(REG,BIT) (REG & (1<<BIT))	    // check bit
+#define Inv(REG,BIT)   (REG ^= (1<<BIT))	// invert bit
+#define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
+#define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
 #define RightLed	Check(PORTB, PORTB0)	// if f1 < f2 - led on else off
 #define RightLedOn	High(PORTB, PORTB0)
@@ -30,7 +30,6 @@
 #define Fault		Check(PORTB, PORTB4)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB4)
 #define FaultOff	Low(PORTB, PORTB4)
-#define FaultInv	Inv(PORTB, PORTB4)
 
 #define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
 #define LedOn		High(PORTB, PORTB5)
@@ -61,7 +60,7 @@
 #define RangeDown		  -0.006		// if ratio < range down then motor moves right
 #define StepDuration	  3				// work time of PWM to one step (roughly)
 #define StepsInterval	  4				// interval between steps
-#define MeasureFaultLimit 100
+#define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -71,32 +70,32 @@
 #include <string.h>
 #include <avr/wdt.h>
 
-volatile unsigned short timer0_overflowCount = 0;
-volatile unsigned short timer2_overflowCount = 0;
-volatile bool handleAfterSecond = false;
+volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
+volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
+volatile bool handleAfterSecond = false;		   // flag to handle data, every second
 
 void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
-		High(TIMSK0, TOIE0);
+		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);	 // external source clock
+		High(TIMSK0, TOIE0);							 // ISR enabled
 		return;
 	}
-	
+														 // stop count
 	TCCR0B = 0x00;
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	timer0_overflowCount++;
+	timer0_overflowCount++;	  // increase ISR counter 
 }
 
 void Timer1(bool enable)
 {
 	if (enable)
 	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
+		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock 
 		return;
 	}
 	
@@ -105,36 +104,36 @@ void Timer1(bool enable)
 
 void Timer2(bool enable)
 {
-	TCNT2 = 0; 
+	TCNT2 = 0; 	   // reset count register
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
-		High(TIMSK2, TOIE2);
+		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM 
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
+		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
 		return;
 	}
 	
-	TCCR2B = 0x00;
-	Low(TIMSK2, TOIE2);
+	TCCR2B = 0x00;										// stop count
+	Low(TIMSK2, TOIE2);									// overflow interrup disabled
 }
 
 ISR(TIMER2_OVF_vect)
 {	
-	timer2_overflowCount++;
+	timer2_overflowCount++;					 // increase overflow variable
 
-	if (timer2_overflowCount >= 125)
+	if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
 	{
-		handleAfterSecond = true;
-		timer2_overflowCount = 0;
+		handleAfterSecond = true;			 // set flag to handle data
+		timer2_overflowCount = 0;			 // reset overflow counter
 	}
-
+											 // load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
 }
 
-float Average(float value)
+float Average(float value)		   // moving average for frequencies ratio
 {
-	static unsigned short index = 0;
+	static unsigned short index = 0;		  // initialize static vars
 	static float array[ArraySize] = { 0 };
 	static float result = 0;
 	
@@ -147,9 +146,9 @@ float Average(float value)
 
 void Initialization()
 {
-	wdt_disable();
+	wdt_disable();				   // disable wdt timer
 	
-	DDRB = 0b00111111;
+	DDRB = 0b00111111;			   // ports init
 	PORTB = 0b00000000;
 	
 	DDRC = 0b00000000;
@@ -158,19 +157,19 @@ void Initialization()
 	DDRD = 0b00000000;
 	PORTD = 0b11111111;
 	
-	for (int i = 0; i<ArraySize; i++) Average(0);
+	for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
 
-	Timer2(true);
-	sei();
+	Timer2(true);	// timer 2 switch on
+	sei();			// enable global interrupts
 	
-	wdt_enable(WDTO_1S);
+	wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
 
 void SetDirection(float ratio)
 {	
 	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
-	if (fabs(ratio) <= Setpoint)
+	if (fabs(ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		PulseOff;
 		RightLedOff;
@@ -182,10 +181,11 @@ void SetDirection(float ratio)
 		return;
 	}
 	
-	if (stepCount)
+	if (stepCount)	 // while stepCount > 0 motor is moving
 	{
 		stepCount--;
-		if (stepCount < 1)
+		
+		if (stepCount < 1)	   // if stepCount reached 0 motor stopped
 		{
 			PulseOff;
 			stepsInterval = StepsInterval;
@@ -194,17 +194,17 @@ void SetDirection(float ratio)
 		return;
 	}
 		
-	if (stepsInterval)
+	if (stepsInterval)	 // after motor moving step, interval before new step
 	{
 		stepsInterval--;
 		return;
 	}
 	
-	faultCounter++;
+	faultCounter++;		 // ratio not in ranges, increase fault count
 	
-	if (faultCounter > FaultDelay) 
+	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
 	{
-		FaultOn;
+		FaultOn;					
 		PulseOff;
 		FaultLedOn;
 		faultCounter = 0;
@@ -214,7 +214,7 @@ void SetDirection(float ratio)
 	
 	if (ratio >= RangeUp) 
 	{
-		if (motorState != Right) 
+		if (motorState != Right) // if f1 < f2 pwm is on with width < 1 %
 		{
 			OCR2A = 132;
 			motorState = Right;
@@ -224,7 +224,7 @@ void SetDirection(float ratio)
 	}
 	else 
 	{
-		if (motorState != Left)
+		if (motorState != Left)  // if f1 < f2 pwm is on with width 99%
 		{
 			OCR2A = 254;
 			motorState = Left;
@@ -234,7 +234,7 @@ void SetDirection(float ratio)
 	}
 	
 	PulseOn;
-	stepCount = StepDuration;
+	stepCount = StepDuration;	 // set duration of pwm work
 }
 							   					
 int main(void)
@@ -247,9 +247,9 @@ int main(void)
 
     while(1)
     {			
-		if (handleAfterSecond)
+		if (handleAfterSecond)	// if second counted handle data
 		{			
-			if (Running && !run)
+			if (Running && !run)  // initialize before start regulation
 			{
 				FaultLedOff;
 				RightLedOff;
@@ -260,7 +260,7 @@ int main(void)
 				Timer1(true);
 			}
 			
-			if (!Running && run)
+			if (!Running && run)   // reset after stop spindle
 			{
 				LedOff;
 				if (Fault) FaultOff;
@@ -275,18 +275,19 @@ int main(void)
 				f2 = 0;
 			}
 			
-			if (run && !startDelay)
+			if (run && !startDelay)	 // handle data after startDelay
 			{
-				LedInv;
+				LedInv;		   // operating LED
 
-				f1 = TCNT0 + timer0_overflowCount*256.f;
-				f2 = TCNT1;
+				f1 = TCNT0 + timer0_overflowCount*256.f;  // calculation f1	(aramid)
+				f2 = TCNT1;								  // calculation f2	(polyamide)
 				
-				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));
+				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
 				
-				if (f1 < 10) f1_measureFaults++;
-				if (f2 < 10) f2_measureFaults++;	
+				if (f1 < 10) f1_measureFaults++;   // count measure error f1
+				if (f2 < 10) f2_measureFaults++;   // count measure error f2
 				
+				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
 				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
 				{
 					FaultOn;
@@ -297,14 +298,14 @@ int main(void)
 				}
 			}
 			
-			if (startDelay) startDelay--;
+			if (startDelay) startDelay--;  // start delay counter
 
-			TCNT0 = 0;
+			TCNT0 = 0;					  // reset count registers after receiving values
 			TCNT1 = 0;
 			timer0_overflowCount = 0;
-			handleAfterSecond = false;
+			handleAfterSecond = false;	  // reset handle second flag
 		}
 		
-		wdt_reset();
+		wdt_reset();					  // wdt reset
     }
 }
