@@ -37,6 +37,10 @@
 #define RxBufferSize 100
 #define TxBufferSize 100
 
+#define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
+#define PulseOn		High(TCCR2A, COM2A1)
+#define PulseOff	Low(TCCR2A, COM2A1)
+
 //#define DDSOut	 (Check(PORTD, 7))
 //#define DDSOutInv Inv(PORTD, 7)
 
@@ -72,6 +76,9 @@ const unsigned long int		ACCUM_MAXIMUM = 1875000000;
 //const unsigned int		FREQUENCY_MAXIMUM = 7812; // timer2 divider 1024
 const unsigned int	    FREQUENCY_MAXIMUM = 31250; // timer2 divider 256
 //const unsigned long int   FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
+
+bool handleAfterSecond = false;
+unsigned int timer2_overflowCount = 0;
 
 struct
 {
@@ -179,18 +186,18 @@ ISR(TIMER1_OVF_vect)
 	TCNT1 = 64911;
 }
 
-ISR(TIMER2_OVF_vect)
-{
-	TCNT2 = 255;
-	
-	DDS.accum += DDS.increment;
-	
-	if (DDS.accum >= ACCUM_MAXIMUM)
-	{
-		//DDSOutInv;
-		DDS.accum -= ACCUM_MAXIMUM;
-	}
-}
+//ISR(TIMER2_OVF_vect)
+//{
+	//TCNT2 = 255;
+	//
+	//DDS.accum += DDS.increment;
+	//
+	//if (DDS.accum >= ACCUM_MAXIMUM)
+	//{
+		////DDSOutInv;
+		//DDS.accum -= ACCUM_MAXIMUM;
+	//}
+//}
 
 ISR(USART_RX_vect)
 {
@@ -247,18 +254,47 @@ void Timer1(unsigned short mode)
 	}
 }
 
+//void Timer2(bool enable)
+//{
+	//if (enable)
+	//{
+		//TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 128 bit scaler
+		//TIMSK2 = (1<<TOIE2);
+		//return;
+	//}
+	//
+	//TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
+	//TIMSK2 = (0<<TOIE2);
+	//TCNT2 = 0;
+//}
+
 void Timer2(bool enable)
 {
+	TCNT2 = 0; 	   // reset count register
+	
 	if (enable)
 	{
-		TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 128 bit scaler
-		TIMSK2 = (1<<TOIE2);
+		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
+		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
 		return;
 	}
 	
-	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
-	TIMSK2 = (0<<TOIE2);
-	TCNT2 = 0;
+	TCCR2B = 0x00;										// stop count
+	Low(TIMSK2, TOIE2);									// overflow interrup disabled
+}
+
+ISR(TIMER2_OVF_vect)
+{
+	timer2_overflowCount++;					 // increase overflow variable
+
+	if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
+	{
+		handleAfterSecond = true;			 // set flag to handle data
+		timer2_overflowCount = 0;			 // reset overflow counter
+	}
+	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
+	TCNT2 = 131;
 }
  
 void Comparator()
@@ -592,11 +628,24 @@ void Step(short direction)
 	_delay_ms(12);
 }
 
+void Step2(short direction)
+{
+	if (direction)
+	{
+		if (OCR2A == 132) return;
+		OCR2A = 132;
+		return;
+	}
+	
+	if (OCR2A == 250) return; // 250
+	OCR2A = 250;
+} 
+
 void Control()
 {
-	if (Active) { Step(Right);	return; }
+	if (Active) { Step2(Right);	return; }
 	
-	Step(Left);
+	Step2(Left);
 }
 
 int main(void)
@@ -610,12 +659,21 @@ int main(void)
 	DDRD = 0b00001010;
 	PORTD = 0b00110111;
 	
-	Timer1(Counter);
+	//Timer1(Counter);
+	Timer2(On);
 	Comparator();
 	sei();
 	
+	PulseOn;
+	
 	while(1)
 	{	
+		if (handleAfterSecond) 
+		{
+			LedInv;
+			handleAfterSecond = false;
+		}
+		
 		Control();
 		
 		if (MainTimer.isr)

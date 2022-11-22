@@ -3,9 +3,9 @@
  *
  * Created: 11/18/2022 12:57:15 PM
  *  Author: igor.abramov
- * OCR2A min 132 - 0.13 us - 1.6 %
- * OCR2A max 254 - 8 ms - 99.2 %   
- * flip-flop T ~ 6.8 ms
+ * OCR2A min 135 - 0.256 us - 3.2 %
+ * OCR2A max 250 - 7.6 ms - 96 %   
+ * flip-flop T ~ 6.0 ms
  */  
 			
 #define Check(REG,BIT) (REG & (1<<BIT))	    // check bit
@@ -216,7 +216,7 @@ void SetDirection(float ratio)
 	{
 		if (motorState != Right) // if f1 < f2 pwm is on with width < 1 %
 		{
-			OCR2A = 132;
+			OCR2A = 135;
 			motorState = Right;
 			RightLedOn;
 			LeftLedOff;
@@ -226,7 +226,7 @@ void SetDirection(float ratio)
 	{
 		if (motorState != Left)  // if f1 < f2 pwm is on with width 99%
 		{
-			OCR2A = 254;
+			OCR2A = 250;
 			motorState = Left;
 			LeftLedOn;
 			RightLedOff;
@@ -240,14 +240,14 @@ void SetDirection(float ratio)
 int main(void)
 {
 	static float f1 = 0, f2 = 0;
-	static unsigned short startDelay = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
+	static unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
 	static bool run = false;
 	
 	Initialization();
 
     while(1)
     {			
-		if (handleAfterSecond)	// if second counted handle data
+		if (handleAfterSecond)	  // if second counted handle data
 		{			
 			if (Running && !run)  // initialize before start regulation
 			{
@@ -255,12 +255,12 @@ int main(void)
 				RightLedOff;
 				LeftLedOff;
 				run = true;
-				startDelay = StartDelay;
+				startDelayCount = StartDelay;  // set seconds for pause before calc
 				Timer0(true);
 				Timer1(true);
 			}
 			
-			if (!Running && run)   // reset after stop spindle
+			if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
 			{
 				LedOff;
 				if (Fault) FaultOff;
@@ -269,22 +269,22 @@ int main(void)
 				for (int i = 0; i<ArraySize; i++) Average(0);
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
-				startDelay = 0;
+				startDelayCount = 0;
 				run = false;
 				f1 = 0;
 				f2 = 0;
 			}
 			
-			if (run && !startDelay)	 // handle data after startDelay
+			if (run && !startDelayCount)	 // handle data after startDelay
 			{
-				LedInv;		   // operating LED
+				LedInv;		   // operating LED	inversion
 
 				f1 = TCNT0 + timer0_overflowCount*256.f;  // calculation f1	(aramid)
 				f2 = TCNT1;								  // calculation f2	(polyamide)
 				
 				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
 				
-				if (f1 < 10) f1_measureFaults++;   // count measure error f1
+				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
 				if (f2 < 10) f2_measureFaults++;   // count measure error f2
 				
 				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
@@ -293,12 +293,12 @@ int main(void)
 					FaultOn;
 					PulseOff;
 					FaultLedOn;
-					SetDirection(0);
-					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn;
+					SetDirection(0); // reset function counters
+					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
 				}
 			}
 			
-			if (startDelay) startDelay--;  // start delay counter
+			if (startDelayCount) startDelayCount--;  // start delay counter
 
 			TCNT0 = 0;					  // reset count registers after receiving values
 			TCNT1 = 0;

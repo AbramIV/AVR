@@ -8,7 +8,7 @@
  * PWM 18 % OCR2A = 152; 
  */ 
 			
-#define Check(REG,BIT) (REG & (1<<BIT))
+#define Check(REG,BIT) (REG & (1<<BIT))		
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))
@@ -237,8 +237,8 @@ void Initialization()
 	PORTD = 0b00000011;
 	
 	Timer2(true);
-	//USART(Init);
-	//USART(On);
+	USART(Init);
+	USART(On);
 	sei();
 }
 
@@ -313,7 +313,7 @@ void Process()
 		Up = MovAvgPolyamide(TCNT1*0.997, false);
 		ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
 		
-		//Transmit(Ua, Up, ratio);
+		Transmit(Ua, Up, ratio);
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
