@@ -232,6 +232,43 @@ void Initialization()
 	sei();
 }
 
+void StartOrStop()
+{
+	if (Running && !Mode.run)
+	{
+		FaultOff;
+		Mode.run = true;
+		Mode.startDelay = StartDelay;
+		Mode.faultDelay = FaultDelay;
+		Mode.fault = false;
+		Timer0(true);
+		Timer1(true);
+	}
+	
+	if (!Running && Mode.run)
+	{
+		LedOff;
+		PulseOff;
+		OCR2A = 0;
+		Timer0(false);
+		Timer1(false);
+		ResetAverages();
+		overflow = 0;
+		Mode.run = false;
+		Mode.fault = false;
+		Mode.faultDelay = FaultDelay;
+		Mode.startDelay = 0;
+		Motor.operation = Locked;
+	}
+}
+
+void ClearCountRegs()
+{
+	TCNT0 = 0;
+	TCNT1 = 0;
+	overflow = 0;
+}
+
 void SetDirection(float ratio)
 {
 	if (Motor.isStep) return;
@@ -270,32 +307,7 @@ int main(void)
     {	
 		if (MainTimer.handle)
 		{	
-			if (Running && !Mode.run)
-			{
-				FaultOff;
-				Mode.run = true;
-				Mode.startDelay = StartDelay;
-				Mode.faultDelay = FaultDelay;
-				Mode.fault = false;
-				Timer0(true);
-				Timer1(true);
-			}
-			
-			if (!Running && Mode.run)
-			{
-				LedOff;
-				PulseOff;
-				OCR2A = 0;
-				Timer0(false);
-				Timer1(false);
-				ResetAverages();
-				overflow = 0;
-				Mode.run = false;
-				Mode.fault = false;
-				Mode.faultDelay = FaultDelay;
-				Mode.startDelay = 0;
-				Motor.operation = Locked;
-			}
+			StartOrStop();
 			
 			if (Mode.startDelay) Mode.startDelay--;
 			
@@ -303,8 +315,8 @@ int main(void)
 			{
 				LedInv;
 				
-				Ua = AvgAramid(256.f*overflow+TCNT0);
-				Up = AvgPolyamide(TCNT1);
+				Ua = AvgAramid(256.f*(float)overflow+(float)TCNT0);
+				Up = AvgPolyamide((float)TCNT1*0.94);
 				ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
 				
 				Transmit(Ua, Up);
@@ -333,12 +345,7 @@ int main(void)
 				}
 			}
 			
-			if (Mode.run)
-			{
-				TCNT0 = 0;
-				TCNT1 = 0;
-				overflow = 0;
-			}
+			if (Mode.run) ClearCountRegs();
 			
 			MainTimer.handle = false;
 		}
