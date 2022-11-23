@@ -28,7 +28,6 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define TxEnable 	Check(PIND, PIND2)	// if connected every sec data transmit
 #define Running		Check(PIND, PIND3)  // spindle run input
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
@@ -71,7 +70,7 @@ struct ModeControl
 {
 	unsigned short startDelay, faultDelay;
 	bool fault, run;
-} Mode = { 0, FaultDelay, false, true };
+} Mode = { 0, FaultDelay, false, false };
 
 struct MotorControl
 {
@@ -158,7 +157,7 @@ void USART(unsigned short option)
 
 void TxChar(unsigned char c)
 {
-	while (!(UCSR0A & (1<<UDRE0)));
+	while (!Check(UCSR0A, UDRE0));
 	UDR0 = c;
 }
 
@@ -167,35 +166,25 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float a, float p, float r)
+void Transmit(float a, float p)
 {
-	static char fa[10] = { 0 }, fp[10] = { 0 }, r1[10] = { 0 };
+	static char fa[16] = { 0 }, fp[16] = { 0 };
 	static char buffer[32] = { 0 };
 	
 	sprintf(fa, "A%.1f$", a);
 	sprintf(fp, "P%.1f$", p);
-	sprintf(r1, "R%.3f$", r);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
-	strcat(buffer, r1);
 	TxString(buffer);
 	
-	for (int i=0; i<16; i++) buffer[i] = 0;
+	for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
-float MovAvgAramid(float value, bool clear)
+float AvgAramid(float value)
 {
-	static unsigned short index = 0;
+	static unsigned int index = 0;
 	static float array[ArraySize] = { 0 };
 	static float result = 0;
-	
-	if (clear)
-	{
-		for (short i=0; i<ArraySize; i++) array[i] = 0;
-		index = 0;
-		result = 0;
-		return 0;
-	}
 	
 	result += value - array[index];
 	array[index] = value;
@@ -204,25 +193,26 @@ float MovAvgAramid(float value, bool clear)
 	return result/ArraySize;
 }
 
-float MovAvgPolyamide(float value, bool clear)
+float AvgPolyamide(float value)
 {
-	static unsigned short index = 0;
+	static unsigned int index = 0;
 	static float array[ArraySize] = { 0 };
 	static float result = 0;
-	
-	if (clear)
-	{
-		for (short i=0; i<ArraySize; i++) array[i] = 0;
-		index = 0;
-		result = 0;
-		return 0;
-	}
 	
 	result += value - array[index];
 	array[index] = value;
 	index = (index + 1) % ArraySize;
 	
 	return result/ArraySize;
+}
+
+void ResetAverages()
+{
+	for (int i = 0; i<ArraySize; i++)
+	{
+		AvgAramid(0);
+		AvgPolyamide(0);
+	}
 }
 
 void Initialization()
@@ -235,42 +225,11 @@ void Initialization()
 	
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
-	
+
 	Timer2(true);
 	USART(Init);
 	USART(On);
 	sei();
-}
-
-void StartOrStop()
-{
-	if (Running && !Mode.run)
-	{
-		FaultOff;
-		Mode.run = true;
-		Mode.startDelay = StartDelay;
-		Mode.faultDelay = FaultDelay;
-		Mode.fault = false;
-		Timer0(true);
-		Timer1(true);
-	}
-	
-	if (!Running && Mode.run)
-	{
-		LedOff;
-		PulseOff;
-		OCR2A = 0;
-		Timer0(false);
-		Timer1(false);
-		MovAvgAramid(0, true);
-		MovAvgPolyamide(0, true);
-		overflow = 0;
-		Mode.run = false;
-		Mode.fault = false;
-		Mode.faultDelay = FaultDelay;
-		Mode.startDelay = 0;
-		Motor.operation = Locked;
-	}
 }
 
 void SetDirection(float ratio)
@@ -300,65 +259,86 @@ void SetDirection(float ratio)
 	Motor.isStep = StepDuration;
 	PulseOn;
 }
-
-void Process()
-{
-	static float Ua = 0, Up = 0, ratio = 0;
-	
-	if (Mode.run && !Mode.startDelay)
-	{
-		LedInv;
-		
-		Ua = MovAvgAramid(256*overflow+TCNT0, false);
-		Up = MovAvgPolyamide(TCNT1*0.997, false);
-		ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
-		
-		Transmit(Ua, Up, ratio);
-		
-		if (Motor.isDelay > 0) Motor.isDelay--;
-		
-		if (Motor.isStep)
-		{	
-			Motor.isStep--;
-			
-			if (!Motor.isStep) 
-			{
-				Motor.isDelay = StepsInterval;
-				PulseOff;
-			}
-		}
-		
-		SetDirection(ratio);
-
-		if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
-		
-		if (!Mode.faultDelay && !Mode.fault)
-		{
-			FaultOn;
-			Mode.fault = true;
-		}
-	}
-	
-	if (Mode.run)
-	{
-		TCNT0 = 0;
-		TCNT1 = 0;
-		overflow = 0;
-	}
-}
 							   					
 int main(void)
 {
+	static float Ua = 0, Up = 0, ratio = 0;
+	
 	Initialization();
 
     while(1)
     {	
 		if (MainTimer.handle)
 		{	
+			if (Running && !Mode.run)
+			{
+				FaultOff;
+				Mode.run = true;
+				Mode.startDelay = StartDelay;
+				Mode.faultDelay = FaultDelay;
+				Mode.fault = false;
+				Timer0(true);
+				Timer1(true);
+			}
+			
+			if (!Running && Mode.run)
+			{
+				LedOff;
+				PulseOff;
+				OCR2A = 0;
+				Timer0(false);
+				Timer1(false);
+				ResetAverages();
+				overflow = 0;
+				Mode.run = false;
+				Mode.fault = false;
+				Mode.faultDelay = FaultDelay;
+				Mode.startDelay = 0;
+				Motor.operation = Locked;
+			}
+			
 			if (Mode.startDelay) Mode.startDelay--;
+			
+			if (Mode.run && !Mode.startDelay)
+			{
+				LedInv;
+				
+				Ua = AvgAramid(256.f*overflow+TCNT0);
+				Up = AvgPolyamide(TCNT1);
+				ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
+				
+				Transmit(Ua, Up);
+				
+				if (Motor.isDelay > 0) Motor.isDelay--;
+				
+				if (Motor.isStep)
+				{
+					Motor.isStep--;
+					
+					if (!Motor.isStep)
+					{
+						Motor.isDelay = StepsInterval;
+						PulseOff;
+					}
+				}
+				
+				SetDirection(ratio);
 
-			StartOrStop();
-			Process();
+				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
+				
+				if (!Mode.faultDelay && !Mode.fault)
+				{
+					FaultOn;
+					Mode.fault = true;
+				}
+			}
+			
+			if (Mode.run)
+			{
+				TCNT0 = 0;
+				TCNT1 = 0;
+				overflow = 0;
+			}
 			
 			MainTimer.handle = false;
 		}

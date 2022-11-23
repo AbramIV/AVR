@@ -4,8 +4,8 @@
  * Created: 11/18/2022 12:57:15 PM
  *  Author: igor.abramov
  * OCR2A min 135 - 0.256 us - 3.2 %
- * OCR2A max 250 - 7.6 ms - 96 %   
- * flip-flop T ~ 6.0 ms
+ * OCR2A max 250 - 7.8 ms - 96 %   
+ * flip-flop T ~ 6.2 ms
  */  
 			
 #define Check(REG,BIT) (REG & (1<<BIT))	    // check bit

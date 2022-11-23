@@ -430,7 +430,7 @@ void SPI_Write(unsigned int word)
 
 void TxChar(unsigned char c)
 {
-	while (!(UCSR0A & (1<<UDRE0)));
+	while (!Check(UCSR0A, UDRE0));
 	UDR0 = c;
 }
 
@@ -662,6 +662,8 @@ int main(void)
 	//Timer1(Counter);
 	Timer2(On);
 	Comparator();
+	USART(Init);
+	USART(On);
 	sei();
 	
 	PulseOn;
@@ -671,6 +673,7 @@ int main(void)
 		if (handleAfterSecond) 
 		{
 			LedInv;
+			TxString("Hello");
 			handleAfterSecond = false;
 		}
 		
