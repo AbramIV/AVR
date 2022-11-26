@@ -74,6 +74,22 @@ volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (cloc
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 volatile bool handleAfterSecond = false;		   // flag to handle data, every second
 
+void ExtISR0(bool enable)
+{
+	if (enable)
+	{
+		EICRA = (1 << ISC01)|(1 << ISC00);
+		High(EIMSK, INT0);
+	}
+	
+	Low(EIMSK, INT0);
+}
+
+ISR(INT0_vect)
+{
+	
+}
+
 void Timer0(bool enable)
 {
 	if (enable)
