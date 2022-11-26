@@ -55,10 +55,10 @@
 #define ArraySize		  32			// average array length
 #define StartDelay		  10			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  0.003			// ratio value for stop motor
-#define RangeUp			  0.006			// if ratio > range up then motor moves left
-#define RangeDown		  -0.006		// if ratio < range down then motor moves right
-#define StepDuration	  3				// work time of PWM to one step (roughly)
+#define Setpoint		  0.002			// ratio value for stop motor
+#define RangeUp			  0.005			// if ratio > range up then motor moves left
+#define RangeDown		  -0.005		// if ratio < range down then motor moves right
+#define StepDuration	  2				// work time of PWM to one step (roughly)
 #define StepsInterval	  4				// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
@@ -146,7 +146,7 @@ float Average(float value)		   // moving average for frequencies ratio
 
 void Initialization()
 {
-	wdt_disable();				   // disable wdt timer
+	//wdt_disable();				   // disable wdt timer
 	
 	DDRB = 0b00111111;			   // ports init
 	PORTB = 0b00000000;
@@ -162,7 +162,7 @@ void Initialization()
 	Timer2(true);	// timer 2 switch on
 	sei();			// enable global interrupts
 	
-	wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
+	//wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
 
 void SetDirection(float ratio)
@@ -239,9 +239,9 @@ void SetDirection(float ratio)
 							   					
 int main(void)
 {
-	static float f1 = 0, f2 = 0;
-	static unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
-	static bool run = false;
+	float f1 = 0, f2 = 0;
+	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
+	bool run = false;
 	
 	Initialization();
 
@@ -263,9 +263,11 @@ int main(void)
 			if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
 			{
 				LedOff;
+				PulseOff;
 				if (Fault) FaultOff;
 				Timer0(false);
 				Timer1(false);
+				SetDirection(0);	// reset function counters
 				for (int i = 0; i<ArraySize; i++) Average(0);
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
@@ -279,9 +281,8 @@ int main(void)
 			{
 				LedInv;		   // operating LED	inversion
 
-				f1 = TCNT0 + timer0_overflowCount*256.f;  // calculation f1	(aramid)
-				f2 = TCNT1;								  // calculation f2	(polyamide)
-				
+				f1 = (float)TCNT0 + (float)timer0_overflowCount*256.f;  // calculation f1	(aramid)
+				f2 = (float)TCNT1;								  // calculation f2	(polyamide)
 				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
@@ -293,7 +294,6 @@ int main(void)
 					FaultOn;
 					PulseOff;
 					FaultLedOn;
-					SetDirection(0); // reset function counters
 					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
 				}
 			}
@@ -306,6 +306,6 @@ int main(void)
 			handleAfterSecond = false;	  // reset handle second flag
 		}
 		
-		wdt_reset();					  // wdt reset
+		//wdt_reset();					  // wdt reset
     }
 }

@@ -211,7 +211,7 @@ float Average(float difference, bool isReset)
 
 void Calculation()
 {	
-	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
+	Measure.Fa = (float)TCNT0 + Measure.ovf*256.f;
 	Measure.Fp = (float)TCNT1;
 	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
 

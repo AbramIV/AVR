@@ -13,11 +13,6 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))
 
-#define Imp			Check(PORTB, PORTB0)	// control pulses of motor
-#define ImpOn		High(PORTB, PORTB0)
-#define ImpOff		Low(PORTB, PORTB0)
-#define ImpInv		Inv(PORTB, PORTB0)
-
 #define Fault		Check(PORTB, PORTB1)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB1)
 #define FaultOff	Low(PORTB, PORTB1)
@@ -44,13 +39,15 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  32		// average array length
+#define ArraySizeA		  32		// average array length
+#define ArraySizeP		  32
 #define StartDelay		  10		// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define RangeUp			  0.006		// if ratio > range up then motor moves left
-#define RangeDown		  -0.006	// if ratio < range down then motor moves right
+#define RangeUp			  0.005		// if ratio > range up then motor moves left
+#define RangeDown		  -0.005	// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
 #define StepsInterval	  16		// interval between	steps
+#define Overfeed		  -0.01
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -77,7 +74,11 @@ struct MotorControl
 	unsigned short isDelay, isStep, operation, stepsInterval; 
 } Motor = { 0, 0, Locked, 0 };
 
-unsigned short overflow = 0;
+struct Data
+{
+	float overflow;
+	float f1, f2, r;
+} Measure;
 
 void Timer0(bool enable)
 {
@@ -93,7 +94,7 @@ void Timer0(bool enable)
 
 ISR(TIMER0_OVF_vect)
 {
-	overflow++;
+	Measure.overflow++;
 }
 
 void Timer1(bool enable)
@@ -166,49 +167,51 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float a, float p)
+void Transmit()
 {
-	static char fa[16] = { 0 }, fp[16] = { 0 };
+	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
 	static char buffer[32] = { 0 };
 	
-	sprintf(fa, "A%.1f$", a);
-	sprintf(fp, "P%.1f$", p);
+	sprintf(fa, "A%.1f$", Measure.f1);
+	sprintf(fp, "P%.1f$", Measure.f2);
+	sprintf(fr, "R%.3f$", Measure.r);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
+	strcat(buffer, fr);
 	TxString(buffer);
 	
 	for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
-float AvgAramid(float value)
+float AvgAramid(float valueA)
 {
-	static unsigned int index = 0;
-	static float array[ArraySize] = { 0 };
-	static float result = 0;
+	static unsigned int indexA = 0;
+	static float arrayA[ArraySizeA] = { 0 };
+	static float resultA = 0;
 	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % ArraySize;
+	resultA += valueA - arrayA[indexA];
+	arrayA[indexA] = valueA;
+	indexA = (indexA + 1) % ArraySizeA;
 	
-	return result/ArraySize;
+	return resultA/ArraySizeA;
 }
 
-float AvgPolyamide(float value)
+float AvgPolyamide(float valueP)
 {
-	static unsigned int index = 0;
-	static float array[ArraySize] = { 0 };
-	static float result = 0;
+	static unsigned int indexP = 0;
+	static float arrayP[ArraySizeP] = { 0 };
+	static float resultP = 0;
 	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % ArraySize;
+	resultP += valueP - arrayP[indexP];
+	arrayP[indexP] = valueP;
+	indexP = (indexP + 1) % ArraySizeP;
 	
-	return result/ArraySize;
+	return resultP/ArraySizeP;
 }
 
 void ResetAverages()
 {
-	for (int i = 0; i<ArraySize; i++)
+	for (int i = 0; i<32; i++)
 	{
 		AvgAramid(0);
 		AvgPolyamide(0);
@@ -217,14 +220,14 @@ void ResetAverages()
 
 void Initialization()
 {
-	DDRB = 0b00111111;
-	PORTB = 0b00000000;
+	DDRB = 0b00101010;
+	PORTB = 0b00010101;
 	
-	DDRC = 0b00111111;
-	PORTC = 0b11000000;
+	DDRC = 0b00000000;
+	PORTC = 0b11111111;
 	
-	DDRD = 0b00000010;
-	PORTD = 0b00000011;
+	DDRD = 0b00000000;
+	PORTD = 0b11000111;
 
 	Timer2(true);
 	USART(Init);
@@ -253,7 +256,10 @@ void StartOrStop()
 		Timer0(false);
 		Timer1(false);
 		ResetAverages();
-		overflow = 0;
+		Measure.overflow = 0;
+		Measure.f1 = 0;
+		Measure.f2 = 0;
+		Measure.r = 0;
 		Mode.run = false;
 		Mode.fault = false;
 		Mode.faultDelay = FaultDelay;
@@ -266,14 +272,14 @@ void ClearCountRegs()
 {
 	TCNT0 = 0;
 	TCNT1 = 0;
-	overflow = 0;
+	Measure.overflow = 0;
 }
 
-void SetDirection(float ratio)
+void SetDirection()
 {
 	if (Motor.isStep) return;
 	
-	if (ratio >= RangeDown && ratio <= RangeUp)
+	if (Measure.r >= RangeDown && Measure.r <= RangeUp)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -282,7 +288,7 @@ void SetDirection(float ratio)
 	
 	if (Motor.isDelay) return;
 	
-	if (ratio >= RangeUp) 
+	if (Measure.r >= RangeUp) 
 	{
 		Motor.operation = Left;
 		OCR2A = 140;
@@ -298,9 +304,7 @@ void SetDirection(float ratio)
 }
 							   					
 int main(void)
-{
-	static float Ua = 0, Up = 0, ratio = 0;
-	
+{	
 	Initialization();
 
     while(1)
@@ -315,11 +319,11 @@ int main(void)
 			{
 				LedInv;
 				
-				Ua = AvgAramid(256.f*(float)overflow+(float)TCNT0);
-				Up = AvgPolyamide((float)TCNT1*0.94);
-				ratio = 1 - ((Ua == 0 ? 1 : Ua) / (Up == 0 ? 1 : Up));
+				Measure.f1 = AvgAramid(256.f*Measure.overflow+(float)TCNT0);
+				Measure.f2 = AvgPolyamide((float)TCNT1);
+				Measure.r = Overfeed - (1 - ((Measure.f1 == 0 ? 1 : Measure.f1) / (Measure.f2 == 0 ? 1 : Measure.f2)));
 				
-				Transmit(Ua, Up);
+				Transmit();
 				
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -334,7 +338,7 @@ int main(void)
 					}
 				}
 				
-				SetDirection(ratio);
+				SetDirection();
 
 				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
 				
