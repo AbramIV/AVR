@@ -74,6 +74,14 @@ volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (cloc
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 volatile bool handleAfterSecond = false;		   // flag to handle data, every second
 
+struct Data
+{
+	unsigned long int ticks;
+	unsigned short ovf;
+	float f;
+	bool completed;
+} Measure = { 0, 0 };
+
 void ExtISR0(bool enable)
 {
 	if (enable)
@@ -87,14 +95,16 @@ void ExtISR0(bool enable)
 
 ISR(INT0_vect)
 {
-	
+	Measure.ticks = 256*Measure.ovf+TCNT0;
+	Measure.ovf = 0;
+	TCNT0 = 0;
 }
 
 void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);	 // external source clock
+		TCCR0B = (0 << CS02)|(0 << CS01)|(1 << CS00);	 // external source clock
 		High(TIMSK0, TOIE0);							 // ISR enabled
 		return;
 	}
@@ -262,7 +272,14 @@ int main(void)
 	Initialization();
 
     while(1)
-    {			
+    {	
+		if (Measure.completed)
+		{
+			Measure.f = Average(1.f/((float)Measure.ticks*0.0000000625));
+			
+			Measure.completed = false;	
+		}
+				
 		if (handleAfterSecond)	  // if second counted handle data
 		{			
 			if (Running && !run)  // initialize before start regulation
