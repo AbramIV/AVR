@@ -13,9 +13,9 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
-#define RightLed	Check(PORTB, PORTB0)	// if f1 < f2 - led on else off
-#define RightLedOn	High(PORTB, PORTB0)
-#define RightLedOff	Low(PORTB, PORTB0)
+#define RightLed	Check(PORTD, PORTB7)	// if f1 < f2 - led on else off
+#define RightLedOn	High(PORTD, PORTB7)
+#define RightLedOff	Low(PORTD, PORTB7)
 
 #define LeftLed		Check(PORTB, PORTB1)	// if f1 > f2 - led on else off
 #define LeftLedOn	High(PORTB, PORTB1)
@@ -53,7 +53,7 @@
 #define Locked			  30
 	
 #define ArraySize		  32			// average array length
-#define StartDelay		  10			// delay to start measuring after spindle start
+#define StartDelay		  3			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  0.002			// ratio value for stop motor
 #define RangeUp			  0.005			// if ratio > range up then motor moves left
@@ -65,85 +65,119 @@
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdio.h>			
+#include <stdio.h>
+#include <stdlib.h>			
 #include <stdbool.h>
 #include <string.h>
 #include <avr/wdt.h>
 
-volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
-volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
-volatile bool handleAfterSecond = false;		   // flag to handle data, every second
+unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
+bool handleAfterSecond = false;		   // flag to handle data, every second
 
-struct Data
+struct Reciprocal
 {
-	unsigned long int ticks;
-	unsigned short ovf;
+	unsigned long int ticks, ticksCurrent, ticksPrevious;
+	unsigned short overflows;
 	bool completed;
-} Measure = { 0, 0, false };
+} ChannelA = { 0, 0, 0, 0, false }, ChannelB = { 0, 0, 0, 0, false };
 
-void ExtISR0(bool enable)
+void ExternalInterrupt0(unsigned short option)
 {
-	if (enable)
+	switch(option)
 	{
-		EICRA = (1 << ISC01)|(1 << ISC00);
-		MCUCR = 
-		High(EIMSK, INT0);
+		case Init:
+			EICRA = (1 << ISC01)|(0 << ISC00);
+			break;			
+		case On:
+			High(EIMSK, INT0);
+			break;
+		default:
+			Low(EIMSK, INT0);
+			break;
 	}
-	
-	Low(EIMSK, INT0);
 }
 
 ISR(INT0_vect)
 {
-	Measure.ticks = 256*Measure.ovf+TCNT0;
-	Measure.completed = true;
-	Measure.ovf = 0;
+	ChannelA.ticks = 256L*ChannelA.overflows+TCNT0;
 	TCNT0 = 0;
+	ChannelA.overflows = 0;
+	ChannelA.completed = true;
 }
 
-void Timer0(bool enable)
+void Timer0(unsigned short option)
 {
-	if (enable)
+	switch(option)
 	{
-		TCCR0B = (0 << CS02)|(0 << CS01)|(1 << CS00);	 // external source clock
-		High(TIMSK0, TOIE0);							 // ISR enabled
-		return;
+		case Init:
+			break;
+		case On:
+			High(TCCR0B, CS00);
+			High(TIMSK0, TOIE0);
+			break;
+		default:
+			Low(TCCR0B, CS00);
+			Low(TIMSK0, TOIE0);
+			break;
 	}
-														 // stop count
-	TCCR0B = 0x00;
+	
+	TCNT0 = 0;
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	Measure.ovf++;
-	//timer0_overflowCount++;	  // increase ISR counter 
+	ChannelA.overflows++;
 }
 
-void Timer1(bool enable)
+void Timer1(unsigned short option)
 {
-	if (enable)
+	switch(option)
 	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock 
-		return;
+		case Init:
+			TCCR1B = (1<<ICNC1)|(1<<ICES1);
+			break;
+		case On:
+			High(TCCR1B, CS10);
+			TIMSK1 |= (1<<ICIE1)|(1<<TOIE1);
+			break;
+		default:
+			Low(TCCR1B, CS10);
+			TIMSK1 &= ~(1<<ICIE1)&~(1<<TOIE1);
+			break;
 	}
 	
-	TCCR1B = 0x00;
+	TCNT1 = 0;
 }
 
-void Timer2(bool enable)
+ISR(TIMER1_OVF_vect)
 {
-	TCNT2 = 0; 	   // reset count register
-	
-	if (enable)
+	ChannelB.overflows++;
+}
+
+ISR(TIMER1_CAPT_vect)
+{
+	ChannelB.ticks = ICR1;
+	ChannelB.completed = true;
+}
+
+void Timer2(unsigned short option)
+{
+	switch(option)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM 
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
-		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
-		return;
+		case Init:
+			TCCR2A = (1 << WGM21)|(1 << WGM20);
+			break;
+		case On:
+			TCCR2B |= (1 << CS22)|(1 << CS21)|(1 << CS20);
+			High(TIMSK2, TOIE2);
+			break;
+		default:
+			TCCR2B &= ~(1 << CS22)&~(1 << CS21)&~(1 << CS20);
+			Low(TIMSK2, TOIE2);
+			break;
 	}
-	
-	TCCR2B = 0x00;										// stop count
-	Low(TIMSK2, TOIE2);									// overflow interrup disabled
+								
+	TCNT2 = 0; 		
 }
 
 ISR(TIMER2_OVF_vect)
@@ -188,12 +222,17 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float f)
+void Transmit(float f1, float f2)
 {
-	static char f1[8] = { 0 };
+	static char f1Buf[16] = { 0 }, f2Buf[16] = { 0 }, buffer[32] = { 0 };
 	
-	sprintf(f1, "F%.1f$", f);
-	TxString(f1);
+	sprintf(f1Buf, "A%.1f$", f1);
+	sprintf(f2Buf, "P%.1f$\r\n", f2);
+	strcat(buffer, f1Buf);
+	strcat(buffer, f2Buf);
+	TxString(buffer);
+	
+	for (int i = 0; i<32; i++) buffer[i] = 0;
 }
 
 float Average(float value)		   // moving average for frequencies ratio
@@ -213,19 +252,25 @@ void Initialization()
 {
 	//wdt_disable();				   // disable wdt timer
 	
-	DDRB = 0b00111111;				   // ports init
-	PORTB = 0b00000000;
+	DDRB = 0b00111110;				   // ports init
+	PORTB = 0b00000001;
 	
 	DDRC = 0b00000000;
 	PORTC = 0b11111111;
 	
-	DDRD = 0b00000000;
-	PORTD = 0b11111111;
+	DDRD = 0b10000000;
+	PORTD = 0b01111111;
 	
 	for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
-
-	Timer2(true);	// timer 2 switch on
-	sei();			// enable global interrupts
+	
+	ExternalInterrupt0(Init);
+	Timer0(Init);
+	Timer1(Init);
+	Timer2(Init);
+	USART(Init);
+	USART(On);	
+	Timer2(On);
+	sei();	
 	
 	//wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
@@ -305,83 +350,84 @@ void SetDirection(float ratio)
 int main(void)
 {
 	float f1 = 0, f2 = 0;
-	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
+	unsigned short startDelayCount = 0, f1_measureFaults = 0, f2_measureFaults = 0;
 	bool run = false;
 	
 	Initialization();
-	USART(Init);
-	USART(On);
-	ExtISR0(true);
-	Timer0(true);
 	
     while(1)
     {	
-		if (Measure.completed)
+		if (ChannelA.completed)
 		{
-			f1 = Average(1.f/((float)Measure.ticks*0.0000000625));
-			Transmit(f1);
-			Measure.completed = false;	
+			f1 = 1.f/(ChannelA.ticks*0.0000000625);
+			ChannelA.completed = false;	
+		}
+		
+		if (ChannelB.completed)
+		{
+			ChannelB.ticksCurrent = (ChannelB.overflows*65536L+ChannelB.ticks)-ChannelB.ticksPrevious;
+			ChannelB.ticksPrevious = ChannelB.ticks;
+			f2 = 1.f/(ChannelB.ticksCurrent*0.0000000625);
+			ChannelB.overflows = 0;
+			ChannelB.completed = false;
 		}
 				
 		if (handleAfterSecond)	  // if second counted handle data
 		{		
-			LedInv;
+			if (Running && !run)  // initialize before start regulation
+			{
+				FaultLedOff;
+				RightLedOff;
+				LeftLedOff;
+				run = true;
+				startDelayCount = StartDelay;  // set seconds for pause before calc
+				USART(On);
+				Timer0(On);
+				Timer1(On);
+				ExternalInterrupt0(On);
+			}
 			
+			if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
+			{
+				LedOff;
+				PulseOff;
+				if (Fault) FaultOff;
+				USART(Off);
+				Timer0(Off);
+				Timer1(Off);
+				ExternalInterrupt0(Off);
+				SetDirection(0);	// reset function counters
+				for (int i = 0; i<ArraySize; i++) Average(0);
+				f1_measureFaults = 0;
+				f2_measureFaults = 0;
+				startDelayCount = 0;
+				run = false;
+				f1 = 0;
+				f2 = 0;
+			}
+			
+			if (run && !startDelayCount)	 // handle data after startDelay
+			{
+				LedInv;		   // operating LED	inversion
+			
+				Transmit(f1, f2);
+				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
 				
-			//if (Running && !run)  // initialize before start regulation
-			//{
-				//FaultLedOff;
-				//RightLedOff;
-				//LeftLedOff;
-				//run = true;
-				//startDelayCount = StartDelay;  // set seconds for pause before calc
-				//Timer0(true);
-				//Timer1(true);
-			//}
-			//
-			//if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
-			//{
-				//LedOff;
-				//PulseOff;
-				//if (Fault) FaultOff;
-				//Timer0(false);
-				//Timer1(false);
-				//SetDirection(0);	// reset function counters
-				//for (int i = 0; i<ArraySize; i++) Average(0);
-				//f1_measureFaults = 0;
-				//f2_measureFaults = 0;
-				//startDelayCount = 0;
-				//run = false;
-				//f1 = 0;
-				//f2 = 0;
-			//}
-			//
-			//if (run && !startDelayCount)	 // handle data after startDelay
-			//{
-				//LedInv;		   // operating LED	inversion
-//
-				//f1 = (float)TCNT0 + (float)timer0_overflowCount*256.f;  // calculation f1	(aramid)
-				//f2 = (float)TCNT1;								  // calculation f2	(polyamide)
-				//SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
-				//
-				//if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
-				//if (f2 < 10) f2_measureFaults++;   // count measure error f2
-				//
-				//// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
-				//if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
-				//{
-					//FaultOn;
-					//PulseOff;
-					//FaultLedOn;
-					//if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
-				//}
-			//}
-			//
-			//if (startDelayCount) startDelayCount--;  // start delay counter
-//
-			//TCNT0 = 0;					  // reset count registers after receiving values
-			//TCNT1 = 0;
-			//timer0_overflowCount = 0;
+				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
+				if (f2 < 10) f2_measureFaults++;   // count measure error f2
+				
+				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
+				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
+				{
+					FaultOn;
+					PulseOff;
+					FaultLedOn;
+					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
+				}
+			}
+			
+			if (startDelayCount) startDelayCount--;  // start delay counter
+			
 			handleAfterSecond = false;	  // reset handle second flag
 		}
 		
