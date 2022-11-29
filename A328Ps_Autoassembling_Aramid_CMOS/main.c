@@ -56,10 +56,10 @@
 #define StartDelay		  10			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  0.002			// ratio value for stop motor
-#define RangeUp			  0.005			// if ratio > range up then motor moves left
-#define RangeDown		  -0.005		// if ratio < range down then motor moves right
+#define RangeUp			  0.006			// if ratio > range up then motor moves left
+#define RangeDown		  -0.006		// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  4				// interval between steps
+#define StepsInterval	  16			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
@@ -131,6 +131,43 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 131;
 }
 
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+			UCSR0B |= (1 << TXEN0);
+			break;
+		case Off:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit(float ratio)
+{
+	static char r[16] = { 0 };
+	
+	sprintf(r, "R%.3f$", ratio);
+	TxString(r);
+}
+
 float Average(float value)		   // moving average for frequencies ratio
 {
 	static unsigned short index = 0;		  // initialize static vars
@@ -148,7 +185,7 @@ void Initialization()
 {
 	//wdt_disable();				   // disable wdt timer
 	
-	DDRB = 0b00111111;			   // ports init
+	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
 	DDRC = 0b00000000;
@@ -239,12 +276,13 @@ void SetDirection(float ratio)
 							   					
 int main(void)
 {
-	float f1 = 0, f2 = 0;
+	float f1 = 0, f2 = 0, ratio = 0;
 	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
 	bool run = false;
 	
 	Initialization();
-
+	USART(Init);
+	USART(On);
     while(1)
     {			
 		if (handleAfterSecond)	  // if second counted handle data
@@ -283,7 +321,9 @@ int main(void)
 
 				f1 = (float)TCNT0 + (float)timer0_overflowCount*256.f;  // calculation f1	(aramid)
 				f2 = (float)TCNT1;								  // calculation f2	(polyamide)
-				SetDirection(Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2)));	// calculation average ratio
+				ratio = Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2));
+				SetDirection(ratio);	// calculation average ratio
+				Transmit(ratio);
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
 				if (f2 < 10) f2_measureFaults++;   // count measure error f2

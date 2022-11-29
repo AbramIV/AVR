@@ -47,7 +47,7 @@
 #define RangeDown		  -0.005	// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
 #define StepsInterval	  16		// interval between	steps
-#define Overfeed		  -0.01
+#define Overfeed		  0
 
 #include <xc.h>
 #include <avr/interrupt.h>
