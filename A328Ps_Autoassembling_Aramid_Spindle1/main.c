@@ -47,7 +47,7 @@
 #define RangeDown		  -0.005	// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
 #define StepsInterval	  16		// interval between	steps
-#define Overfeed		  0
+#define Overfeed		 -0.012
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -78,7 +78,7 @@ struct Data
 {
 	float overflow;
 	float f1, f2, r;
-} Measure;
+} Measure = { 0, 0, 0 };
 
 void Timer0(bool enable)
 {
@@ -296,11 +296,26 @@ void SetDirection()
 	else 
 	{
 		Motor.operation = Right;
-		OCR2A = 133;
+		OCR2A = 132;
 	}
 	
 	Motor.isStep = StepDuration;
 	PulseOn;
+}
+
+float GetRatio(float f1, float f2)
+{	
+	if (f1 < f2)
+	{
+		 return f1/f2;
+	}
+	
+	if (f1 > f2)
+	{
+		
+	}
+	
+	return 0;
 }
 							   					
 int main(void)

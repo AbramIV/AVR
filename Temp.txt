@@ -41,3 +41,5 @@ float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
 	LastEstimate = CurrentEstimate;
 	return CurrentEstimate;	
 }
+
+380 

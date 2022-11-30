@@ -356,6 +356,7 @@ void Regulation()
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
+		ImpOff;
 		return;
 	}
 	
@@ -408,8 +409,7 @@ void Process()
 int main()
 {
 	Initialization();
-		  
-		  
+		  	  
     while(1)
     {		
 		if (MainTimer.handle)
@@ -422,8 +422,7 @@ int main()
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step4();
-		if (Imp) ImpOff;
+		if (Motor.isStep) Step5();
 		
 		//wdt_reset();
     }

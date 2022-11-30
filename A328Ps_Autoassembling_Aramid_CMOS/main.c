@@ -52,14 +52,14 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  32			// average array length
+#define ArraySize		  40			// average array length
 #define StartDelay		  10			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  0.002			// ratio value for stop motor
 #define RangeUp			  0.006			// if ratio > range up then motor moves left
 #define RangeDown		  -0.006		// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  16			// interval between steps
+#define StepsInterval	  20			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
@@ -69,6 +69,14 @@
 #include <stdbool.h>
 #include <string.h>
 #include <avr/wdt.h>
+#include <avr/eeprom.h>
+
+struct Logger
+{
+	float length;
+	unsigned int setpoint;
+	unsigned short cell;
+} Logs = { 0, 0, 1 };
 
 volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
@@ -185,6 +193,8 @@ void Initialization()
 {
 	//wdt_disable();				   // disable wdt timer
 	
+	unsigned short length = 0;
+	
 	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
@@ -197,8 +207,14 @@ void Initialization()
 	for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
 
 	Timer2(true);	// timer 2 switch on
+	USART(Init);
+	USART(On);
 	sei();			// enable global interrupts
+
+	length = eeprom_read_word((unsigned int*)0);
 	
+	for (unsigned int i=1; i<=length; i++) Transmit(eeprom_read_float((float*)i));
+
 	//wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
 
@@ -281,8 +297,7 @@ int main(void)
 	bool run = false;
 	
 	Initialization();
-	USART(Init);
-	USART(On);
+	
     while(1)
     {			
 		if (handleAfterSecond)	  // if second counted handle data
@@ -307,6 +322,9 @@ int main(void)
 				Timer1(false);
 				SetDirection(0);	// reset function counters
 				for (int i = 0; i<ArraySize; i++) Average(0);
+				Logs.length = 0;
+				Logs.cell = 1;
+				Logs.setpoint = 0;
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
 				startDelayCount = 0;
@@ -320,10 +338,20 @@ int main(void)
 				LedInv;		   // operating LED	inversion
 
 				f1 = (float)TCNT0 + (float)timer0_overflowCount*256.f;  // calculation f1	(aramid)
-				f2 = (float)TCNT1;								  // calculation f2	(polyamide)
+				f2 = (float)TCNT1;										// calculation f2	(polyamide)
 				ratio = Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2));
-				SetDirection(ratio);	// calculation average ratio
+				SetDirection(ratio);									// calculation average ratio
 				Transmit(ratio);
+				
+				Logs.length += (((f1+f2)/200)*0.08796);
+				
+				if (Logs.length >= Logs.setpoint)
+				{
+					eeprom_update_float((float*)Logs.cell, ratio);
+					eeprom_update_word((unsigned int*)0, Logs.cell);
+					Logs.setpoint += 1000;
+					Logs.cell++;
+				}
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
 				if (f2 < 10) f2_measureFaults++;   // count measure error f2
