@@ -52,20 +52,21 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  40			// average array length
-#define StartDelay		  10			// delay to start measuring after spindle start
+#define ArraySize		  32			// average array length
+#define StartDelay		  1				// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  0.002			// ratio value for stop motor
-#define RangeUp			  0.006			// if ratio > range up then motor moves left
-#define RangeDown		  -0.006		// if ratio < range down then motor moves right
+#define Setpoint		  4			// ratio value for stop motor
+#define RangeUp			  4				// if ratio > range up then motor moves left
+#define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  20			// interval between steps
-#define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
+#define StepsInterval	  2				// interval between steps
+#define MeasureFaultLimit 10			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdio.h>			
+#include <stdio.h>
+#include <stdlib.h>			
 #include <stdbool.h>
 #include <string.h>
 #include <avr/wdt.h>
@@ -168,19 +169,28 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float ratio)
+void Transmit(int f1, int f2, int ratio)
 {
-	static char r[16] = { 0 };
+	static char a[16] = { 0 }, p[16] = { 0 }, r[16] = { 0 }, buffer[64];
 	
-	sprintf(r, "R%.3f$", ratio);
-	TxString(r);
+	sprintf(a, "A%d$", f1);
+	sprintf(p, "P%d$", f2);
+	sprintf(r, "R%d$\r\n", ratio);
+	
+	strcat(buffer, a);
+	strcat(buffer, p);
+	strcat(buffer, r);
+	
+	TxString(buffer);
+	
+	memset(buffer, 0, sizeof(buffer));
 }
 
-float Average(float value)		   // moving average for frequencies ratio
+int Average(int value)		   // moving average for frequencies ratio
 {
 	static unsigned short index = 0;		  // initialize static vars
-	static float array[ArraySize] = { 0 };
-	static float result = 0;
+	static int array[ArraySize] = { 0 };
+	static int result = 0;
 	
 	result += value - array[index];
 	array[index] = value;
@@ -208,17 +218,17 @@ void Initialization()
 
 	Timer2(true);	// timer 2 switch on
 	USART(Init);
-	USART(On);
+	USART(On);									
 	sei();			// enable global interrupts
 
-	length = eeprom_read_word((unsigned int*)0);
+	length = eeprom_read_dword((uint32_t*)0);
 	
-	for (unsigned int i=1; i<=length; i++) Transmit(eeprom_read_float((float*)i));
+	for (unsigned int i=1; i<=length; i++) Transmit(0, 0, eeprom_read_dword((uint32_t*)i));
 
 	//wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
 
-void SetDirection(float ratio)
+void SetDirection(int ratio)
 {	
 	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
@@ -292,8 +302,8 @@ void SetDirection(float ratio)
 							   					
 int main(void)
 {
-	float f1 = 0, f2 = 0, ratio = 0;
 	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
+	int f1 = 0, f2 = 0, ratio = 0;
 	bool run = false;
 	
 	Initialization();
@@ -302,6 +312,44 @@ int main(void)
     {			
 		if (handleAfterSecond)	  // if second counted handle data
 		{			
+			if (run && !startDelayCount)	 // handle data after startDelay
+			{
+				LedInv;						 // operating LED	inversion
+
+				f1 = TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
+				f2 = TCNT1;										// calculation f2	(polyamide)
+	
+				if (f1 <= f2) ratio = Average((1-(float)f1/(f2 == 0 ? 1 : f2))*1000);	  
+				else ratio = Average((1-(float)f2/f1)*-1000);
+				
+				SetDirection(ratio);									// calculation average ratio
+				Transmit(f1, f2, ratio);
+				
+				Logs.length += (((f1+f2)/200)*0.08796);
+				
+				if (Logs.length >= Logs.setpoint)
+				{
+					eeprom_update_dword((uint32_t*)Logs.cell, ratio);
+					eeprom_update_dword((uint32_t*)0, Logs.cell);
+					Logs.setpoint += 1000;
+					Logs.cell++;
+				}
+				
+				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
+				if (f2 < 10) f2_measureFaults++;   // count measure error f2
+				
+				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
+				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
+				{
+					FaultOn;
+					PulseOff;
+					FaultLedOn;
+					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
+				}
+			}
+			
+			if (startDelayCount) startDelayCount--;  // start delay counter
+
 			if (Running && !run)  // initialize before start regulation
 			{
 				FaultLedOff;
@@ -332,41 +380,6 @@ int main(void)
 				f1 = 0;
 				f2 = 0;
 			}
-			
-			if (run && !startDelayCount)	 // handle data after startDelay
-			{
-				LedInv;		   // operating LED	inversion
-
-				f1 = (float)TCNT0 + (float)timer0_overflowCount*256.f;  // calculation f1	(aramid)
-				f2 = (float)TCNT1;										// calculation f2	(polyamide)
-				ratio = Average(1 - (f1 == 0 ? 1 : f1) / (f2 == 0 ? 1 : f2));
-				SetDirection(ratio);									// calculation average ratio
-				Transmit(ratio);
-				
-				Logs.length += (((f1+f2)/200)*0.08796);
-				
-				if (Logs.length >= Logs.setpoint)
-				{
-					eeprom_update_float((float*)Logs.cell, ratio);
-					eeprom_update_word((unsigned int*)0, Logs.cell);
-					Logs.setpoint += 1000;
-					Logs.cell++;
-				}
-				
-				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
-				if (f2 < 10) f2_measureFaults++;   // count measure error f2
-				
-				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
-				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
-				{
-					FaultOn;
-					PulseOff;
-					FaultLedOn;
-					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
-				}
-			}
-			
-			if (startDelayCount) startDelayCount--;  // start delay counter
 
 			TCNT0 = 0;					  // reset count registers after receiving values
 			TCNT1 = 0;
