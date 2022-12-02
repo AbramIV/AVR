@@ -4,6 +4,7 @@
  * Created: 6/4/2022 7:34:54 PM
  *  Author: igor.abramov
  * k = Tcount*0.028*Pi*60/100
+ * CC4R5
  */ 
 
 #define F_CPU	16000000L

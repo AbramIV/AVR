@@ -6,6 +6,7 @@
  * k = Tcount*0.028*Pi*60/100
  * PWM 14 % OCR2A = 144; 
  * PWM 18 % OCR2A = 152; 
+ * CC4R1, CC4R3
  */ 
 			
 #define Check(REG,BIT) (REG & (1<<BIT))		
@@ -39,15 +40,14 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySizeA		  32		// average array length
-#define ArraySizeP		  32
+#define ArraySize		  40
 #define StartDelay		  10		// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define RangeUp			  0.005		// if ratio > range up then motor moves left
-#define RangeDown		  -0.005	// if ratio < range down then motor moves right
+#define RangeUp			  5			// if ratio > range up then motor moves left
+#define RangeDown		  5			// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
-#define StepsInterval	  16		// interval between	steps
-#define Overfeed		 -0.012
+#define StepsInterval	  20		// interval between	steps
+#define Overfeed		  0
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -76,9 +76,9 @@ struct MotorControl
 
 struct Data
 {
-	float overflow;
-	float f1, f2, r;
-} Measure = { 0, 0, 0 };
+	short overflow;
+	short f1, f2, ratio;
+} Measure = { 0, 0, 0, 0 };
 
 void Timer0(bool enable)
 {
@@ -172,9 +172,9 @@ void Transmit()
 	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
 	static char buffer[32] = { 0 };
 	
-	sprintf(fa, "A%.1f$", Measure.f1);
-	sprintf(fp, "P%.1f$", Measure.f2);
-	sprintf(fr, "R%.3f$", Measure.r);
+	sprintf(fa, "A%d$", Measure.f1);
+	sprintf(fp, "P%d$", Measure.f2);
+	sprintf(fr, "R%d$", Measure.ratio);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
 	strcat(buffer, fr);
@@ -183,39 +183,17 @@ void Transmit()
 	for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
-float AvgAramid(float valueA)
+short Average(short value)
 {
-	static unsigned int indexA = 0;
-	static float arrayA[ArraySizeA] = { 0 };
-	static float resultA = 0;
+	static unsigned int index = 0;
+	static short array[ArraySize] = { 0 };
+	static short result = 0;
 	
-	resultA += valueA - arrayA[indexA];
-	arrayA[indexA] = valueA;
-	indexA = (indexA + 1) % ArraySizeA;
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % ArraySize;
 	
-	return resultA/ArraySizeA;
-}
-
-float AvgPolyamide(float valueP)
-{
-	static unsigned int indexP = 0;
-	static float arrayP[ArraySizeP] = { 0 };
-	static float resultP = 0;
-	
-	resultP += valueP - arrayP[indexP];
-	arrayP[indexP] = valueP;
-	indexP = (indexP + 1) % ArraySizeP;
-	
-	return resultP/ArraySizeP;
-}
-
-void ResetAverages()
-{
-	for (int i = 0; i<32; i++)
-	{
-		AvgAramid(0);
-		AvgPolyamide(0);
-	}
+	return result/ArraySize;
 }
 
 void Initialization()
@@ -228,6 +206,8 @@ void Initialization()
 	
 	DDRD = 0b00000000;
 	PORTD = 0b11000111;
+
+	for (int i = 0; i<ArraySize; i++) Average(0);
 
 	Timer2(true);
 	USART(Init);
@@ -255,11 +235,11 @@ void StartOrStop()
 		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
-		ResetAverages();
+		for (int i = 0; i<ArraySize; i++) Average(0);
 		Measure.overflow = 0;
 		Measure.f1 = 0;
 		Measure.f2 = 0;
-		Measure.r = 0;
+		Measure.ratio = 0;
 		Mode.run = false;
 		Mode.fault = false;
 		Mode.faultDelay = FaultDelay;
@@ -279,7 +259,7 @@ void SetDirection()
 {
 	if (Motor.isStep) return;
 	
-	if (Measure.r >= RangeDown && Measure.r <= RangeUp)
+	if (Measure.ratio >= RangeDown && Measure.ratio <= RangeUp)
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
@@ -288,10 +268,10 @@ void SetDirection()
 	
 	if (Motor.isDelay) return;
 	
-	if (Measure.r >= RangeUp) 
+	if (Measure.ratio >= RangeUp) 
 	{
 		Motor.operation = Left;
-		OCR2A = 140;
+		OCR2A = 144;
 	}
 	else 
 	{
@@ -302,22 +282,7 @@ void SetDirection()
 	Motor.isStep = StepDuration;
 	PulseOn;
 }
-
-float GetRatio(float f1, float f2)
-{	
-	if (f1 < f2)
-	{
-		 return f1/f2;
-	}
-	
-	if (f1 > f2)
-	{
-		
-	}
-	
-	return 0;
-}
-							   					
+						   					
 int main(void)
 {	
 	Initialization();
@@ -334,9 +299,13 @@ int main(void)
 			{
 				LedInv;
 				
-				Measure.f1 = AvgAramid(256.f*Measure.overflow+(float)TCNT0);
-				Measure.f2 = AvgPolyamide((float)TCNT1);
-				Measure.r = Overfeed - (1 - ((Measure.f1 == 0 ? 1 : Measure.f1) / (Measure.f2 == 0 ? 1 : Measure.f2)));
+				Measure.f1 = Measure.overflow*256+TCNT0;
+				Measure.f2 = TCNT1*1.009;
+				
+				if (Measure.f1 <= Measure.f2) 
+					Measure.ratio = Average(Overfeed - (1-(float)Measure.f1/(Measure.f2 == 0 ? 1 : Measure.f2))*-1000);
+				else 
+					Measure.ratio = Average(Overfeed - (1-(float)Measure.f2/Measure.f1)*1000);
 				
 				Transmit();
 				

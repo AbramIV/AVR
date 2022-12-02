@@ -6,6 +6,7 @@
  * OCR2A min 135 - 0.256 us - 3.2 %
  * OCR2A max 250 - 7.8 ms - 96 %   
  * flip-flop T ~ 6.2 ms
+ * CC4R4
  */  
 			
 #define Check(REG,BIT) (REG & (1<<BIT))	    // check bit
@@ -52,15 +53,15 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  32			// average array length
-#define StartDelay		  1				// delay to start measuring after spindle start
+#define ArraySize		  40			// average array length
+#define StartDelay		  5				// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  4			// ratio value for stop motor
+#define Setpoint		  2			// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  2				// interval between steps
-#define MeasureFaultLimit 10			// count of measurements frequency. if f < 10 more than 100 times stop
+#define StepsInterval	  16				// interval between steps
+#define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -69,15 +70,6 @@
 #include <stdlib.h>			
 #include <stdbool.h>
 #include <string.h>
-#include <avr/wdt.h>
-#include <avr/eeprom.h>
-
-struct Logger
-{
-	float length;
-	unsigned int setpoint;
-	unsigned short cell;
-} Logs = { 0, 0, 1 };
 
 volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
@@ -175,7 +167,7 @@ void Transmit(int f1, int f2, int ratio)
 	
 	sprintf(a, "A%d$", f1);
 	sprintf(p, "P%d$", f2);
-	sprintf(r, "R%d$\r\n", ratio);
+	sprintf(r, "R%d$", ratio);
 	
 	strcat(buffer, a);
 	strcat(buffer, p);
@@ -201,10 +193,6 @@ int Average(int value)		   // moving average for frequencies ratio
 
 void Initialization()
 {
-	//wdt_disable();				   // disable wdt timer
-	
-	unsigned short length = 0;
-	
 	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
@@ -220,12 +208,6 @@ void Initialization()
 	USART(Init);
 	USART(On);									
 	sei();			// enable global interrupts
-
-	length = eeprom_read_dword((uint32_t*)0);
-	
-	for (unsigned int i=1; i<=length; i++) Transmit(0, 0, eeprom_read_dword((uint32_t*)i));
-
-	//wdt_enable(WDTO_1S);  // enable wdt with reset after 1 second hang
 }
 
 void SetDirection(int ratio)
@@ -311,45 +293,7 @@ int main(void)
     while(1)
     {			
 		if (handleAfterSecond)	  // if second counted handle data
-		{			
-			if (run && !startDelayCount)	 // handle data after startDelay
-			{
-				LedInv;						 // operating LED	inversion
-
-				f1 = TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
-				f2 = TCNT1;										// calculation f2	(polyamide)
-	
-				if (f1 <= f2) ratio = Average((1-(float)f1/(f2 == 0 ? 1 : f2))*1000);	  
-				else ratio = Average((1-(float)f2/f1)*-1000);
-				
-				SetDirection(ratio);									// calculation average ratio
-				Transmit(f1, f2, ratio);
-				
-				Logs.length += (((f1+f2)/200)*0.08796);
-				
-				if (Logs.length >= Logs.setpoint)
-				{
-					eeprom_update_dword((uint32_t*)Logs.cell, ratio);
-					eeprom_update_dword((uint32_t*)0, Logs.cell);
-					Logs.setpoint += 1000;
-					Logs.cell++;
-				}
-				
-				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
-				if (f2 < 10) f2_measureFaults++;   // count measure error f2
-				
-				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
-				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
-				{
-					FaultOn;
-					PulseOff;
-					FaultLedOn;
-					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
-				}
-			}
-			
-			if (startDelayCount) startDelayCount--;  // start delay counter
-
+		{	
 			if (Running && !run)  // initialize before start regulation
 			{
 				FaultLedOff;
@@ -370,9 +314,6 @@ int main(void)
 				Timer1(false);
 				SetDirection(0);	// reset function counters
 				for (int i = 0; i<ArraySize; i++) Average(0);
-				Logs.length = 0;
-				Logs.cell = 1;
-				Logs.setpoint = 0;
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
 				startDelayCount = 0;
@@ -380,13 +321,40 @@ int main(void)
 				f1 = 0;
 				f2 = 0;
 			}
+					
+			if (run && !startDelayCount)	 // handle data after startDelay
+			{
+				LedInv;						 // operating LED	inversion
 
-			TCNT0 = 0;					  // reset count registers after receiving values
-			TCNT1 = 0;
-			timer0_overflowCount = 0;
+				f1 = TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
+				f2 = TCNT1;										// calculation f2	(polyamide)
+	
+				TCNT0 = 0;					  // reset count registers after receiving values
+				TCNT1 = 0;
+				timer0_overflowCount = 0;
+	
+				if (f1 <= f2) ratio = Average((1-(float)f1/(f2 == 0 ? 1 : f2))*1000);	  
+				else ratio = Average((1-(float)f2/f1)*-1000);
+				
+				SetDirection(ratio);									// calculation average ratio
+				Transmit(f1, f2, ratio);
+				
+				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
+				if (f2 < 10) f2_measureFaults++;   // count measure error f2
+				
+				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
+				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
+				{
+					FaultOn;
+					PulseOff;
+					FaultLedOn;
+					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
+				}
+			}
+			
+			if (startDelayCount) startDelayCount--;  // start delay counter
+
 			handleAfterSecond = false;	  // reset handle second flag
 		}
-		
-		//wdt_reset();					  // wdt reset
     }
 }
