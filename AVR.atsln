@@ -35,6 +35,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lcd1602", "lcd1602", "{E4C8
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507-4AF9-40BD-A275-EE66B8AFD88B}"
 	ProjectSection(SolutionItems) = preProject
+		..\..\Utilities\SerialRecorder\05.12.2022\sp1\Data.xlsx = ..\..\Utilities\SerialRecorder\05.12.2022\sp1\Data.xlsx
 		DDS Description.c = DDS Description.c
 		esp8266.txt = esp8266.txt
 		LCD keypad shield.txt = LCD keypad shield.txt

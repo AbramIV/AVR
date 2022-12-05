@@ -53,14 +53,14 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  40			// average array length
-#define StartDelay		  5				// delay to start measuring after spindle start
+#define ArraySize		  64			// average array length
+#define StartDelay		  60			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  2			// ratio value for stop motor
+#define Setpoint		  2				// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  16				// interval between steps
+#define StepsInterval	  25			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
@@ -191,6 +191,28 @@ int Average(int value)		   // moving average for frequencies ratio
 	return result/ArraySize;
 }
 
+short Kalman(short value, bool reset)
+{
+	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.001;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		estimateVariation = 5;
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
+	estimateVariation = (1.f - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return (short)CurrentEstimate;
+}
+
 void Initialization()
 {
 	DDRB = 0b00111111;					// ports init
@@ -202,7 +224,7 @@ void Initialization()
 	DDRD = 0b00000000;
 	PORTD = 0b11111111;
 	
-	for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
+	//for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
 
 	Timer2(true);	// timer 2 switch on
 	USART(Init);
@@ -222,7 +244,6 @@ void SetDirection(int ratio)
 		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
-		stepsInterval = 0;
 		return;
 	}
 	
@@ -238,7 +259,7 @@ void SetDirection(int ratio)
 			
 		return;
 	}
-		
+	
 	if (stepsInterval)	 // after motor moving step, interval before new step
 	{
 		stepsInterval--;
@@ -313,7 +334,8 @@ int main(void)
 				Timer0(false);
 				Timer1(false);
 				SetDirection(0);	// reset function counters
-				for (int i = 0; i<ArraySize; i++) Average(0);
+				Kalman(0, true);
+				//for (int i = 0; i<ArraySize; i++) Average(0);
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
 				startDelayCount = 0;
@@ -322,7 +344,7 @@ int main(void)
 				f2 = 0;
 			}
 					
-			if (run && !startDelayCount)	 // handle data after startDelay
+			if (run)	 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
@@ -333,10 +355,10 @@ int main(void)
 				TCNT1 = 0;
 				timer0_overflowCount = 0;
 	
-				if (f1 <= f2) ratio = Average((1-(float)f1/(f2 == 0 ? 1 : f2))*1000);	  
-				else ratio = Average((1-(float)f2/f1)*-1000);
+				if (f1 <= f2) ratio = Kalman((1-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
+				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
 				
-				SetDirection(ratio);									// calculation average ratio
+				if (!startDelayCount) SetDirection(ratio);									// calculation average ratio
 				Transmit(f1, f2, ratio);
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)

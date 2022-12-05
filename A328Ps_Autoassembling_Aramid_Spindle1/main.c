@@ -40,13 +40,12 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  40
 #define StartDelay		  10		// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define RangeUp			  5			// if ratio > range up then motor moves left
-#define RangeDown		  5			// if ratio < range down then motor moves right
+#define RangeUp			  4			// if ratio > range up then motor moves left
+#define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  4			// work time of PWM to one step
-#define StepsInterval	  20		// interval between	steps
+#define StepsInterval	  25		// interval between	steps
 #define Overfeed		  0
 
 #include <xc.h>
@@ -183,17 +182,26 @@ void Transmit()
 	for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
-short Average(short value)
+short Kalman(short value, bool reset)
 {
-	static unsigned int index = 0;
-	static short array[ArraySize] = { 0 };
-	static short result = 0;
+	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.001;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
 	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % ArraySize;
+	if (reset)
+	{
+		estimateVariation = 5;
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
 	
-	return result/ArraySize;
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
+	estimateVariation = (1.f - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return (short)CurrentEstimate;
 }
 
 void Initialization()
@@ -206,8 +214,6 @@ void Initialization()
 	
 	DDRD = 0b00000000;
 	PORTD = 0b11000111;
-
-	for (int i = 0; i<ArraySize; i++) Average(0);
 
 	Timer2(true);
 	USART(Init);
@@ -235,7 +241,7 @@ void StartOrStop()
 		OCR2A = 0;
 		Timer0(false);
 		Timer1(false);
-		for (int i = 0; i<ArraySize; i++) Average(0);
+		Kalman(0, true);
 		Measure.overflow = 0;
 		Measure.f1 = 0;
 		Measure.f2 = 0;
@@ -256,7 +262,7 @@ void ClearCountRegs()
 }
 
 void SetDirection()
-{
+{	
 	if (Motor.isStep) return;
 	
 	if (Measure.ratio >= RangeDown && Measure.ratio <= RangeUp)
@@ -271,12 +277,12 @@ void SetDirection()
 	if (Measure.ratio >= RangeUp) 
 	{
 		Motor.operation = Left;
-		OCR2A = 144;
+		OCR2A = 190;   // sp5 190 / 144
 	}
 	else 
 	{
 		Motor.operation = Right;
-		OCR2A = 132;
+		OCR2A = 145;   // sp5 145 / 132
 	}
 	
 	Motor.isStep = StepDuration;
@@ -300,12 +306,12 @@ int main(void)
 				LedInv;
 				
 				Measure.f1 = Measure.overflow*256+TCNT0;
-				Measure.f2 = TCNT1*1.009;
+				Measure.f2 = TCNT1;
 				
 				if (Measure.f1 <= Measure.f2) 
-					Measure.ratio = Average(Overfeed - (1-(float)Measure.f1/(Measure.f2 == 0 ? 1 : Measure.f2))*-1000);
+					Measure.ratio = Kalman(Overfeed - (1-(float)Measure.f1/(Measure.f2 == 0 ? 1 : Measure.f2))*-1000, false);
 				else 
-					Measure.ratio = Average(Overfeed - (1-(float)Measure.f2/Measure.f1)*1000);
+					Measure.ratio = Kalman(Overfeed - (1-(float)Measure.f2/Measure.f1)*1000, false);
 				
 				Transmit();
 				

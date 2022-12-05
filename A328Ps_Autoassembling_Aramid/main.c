@@ -47,8 +47,8 @@
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define Setpoint		  0.002 
-#define RangeUp			  0.005		
-#define RangeDown		  -0.005
+#define RangeUp			  0.006		
+#define RangeDown		  -0.006
 #define StepDuration	  3			// seconds	 sp5 - 4	sp4 - 3
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
@@ -270,43 +270,7 @@ void StartOrStop()
 	}
 }			  
 
-void Step4()
-{
-	ImpOn;
-	
-	if (Motor.operation == Right)
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(2);
-			Motor.isFirstPulse = false;
-			ImpOff;
-			return;
-		}
-		
-		_delay_us(1165);
-		ImpOff;
-		_delay_ms(5);
-		return;
-	}
-	
-	if (Motor.operation == Left)
-	{
-		if (Motor.isFirstPulse)
-		{
-			_delay_ms(5);
-			Motor.isFirstPulse = false;
-			ImpOff;
-			return;
-		}
-		
-		_delay_ms(5);
-		ImpOff;
-		_delay_ms(1);
-	}
-}
-
-void Step5()
+void Step()
 {
 	ImpOn;
 	
@@ -339,14 +303,6 @@ void Step5()
 		ImpOff;
 		_delay_ms(1);
 	}
-}
-
-void Step()
-{
-	ImpOn;
-	_delay_us(1165);
-	ImpOff;
-	_delay_ms(5);
 }
 
 void Regulation()
@@ -423,7 +379,7 @@ int main()
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step5();
+		if (Motor.isStep) Step();
 		
 		//wdt_reset();
     }
