@@ -53,14 +53,13 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define ArraySize		  64			// average array length
 #define StartDelay		  60			// delay to start measuring after spindle start
 #define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  2				// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  25			// interval between steps
+#define StepsInterval	  30			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
@@ -178,19 +177,6 @@ void Transmit(int f1, int f2, int ratio)
 	memset(buffer, 0, sizeof(buffer));
 }
 
-int Average(int value)		   // moving average for frequencies ratio
-{
-	static unsigned short index = 0;		  // initialize static vars
-	static int array[ArraySize] = { 0 };
-	static int result = 0;
-	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % ArraySize;
-	
-	return result/ArraySize;
-}
-
 short Kalman(short value, bool reset)
 {
 	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.001;
@@ -223,8 +209,6 @@ void Initialization()
 	
 	DDRD = 0b00000000;
 	PORTD = 0b11111111;
-	
-	//for (int i = 0; i<ArraySize; i++) Average(0);  // reset average array
 
 	Timer2(true);	// timer 2 switch on
 	USART(Init);
@@ -243,7 +227,11 @@ void SetDirection(int ratio)
 		LeftLedOff;
 		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
-		stepCount = 0;
+		if (stepCount)
+		{
+			stepCount = 0;
+			stepsInterval = StepsInterval;
+		}
 		return;
 	}
 	
@@ -335,7 +323,6 @@ int main(void)
 				Timer1(false);
 				SetDirection(0);	// reset function counters
 				Kalman(0, true);
-				//for (int i = 0; i<ArraySize; i++) Average(0);
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
 				startDelayCount = 0;
