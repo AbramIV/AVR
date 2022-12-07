@@ -139,13 +139,13 @@ void USART(unsigned short option)
 			UCSR0B |= (1 << TXEN0);
 			break;
 		case Off:
-		UCSR0B |= (0 << TXEN0);
-		break;
+			UCSR0B |= (0 << TXEN0);
+			break;
 		default:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-		UBRR0  =  3;
-		break;
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0  =  3;
+			break;
 	}
 }
 
@@ -174,12 +174,12 @@ void Transmit(int f1, int f2, int ratio)
 	
 	TxString(buffer);
 	
-	memset(buffer, 0, sizeof(buffer));
+	buffer[0] = '\0';
 }
 
 short Kalman(short value, bool reset)
 {
-	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.001;
+	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.01;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
