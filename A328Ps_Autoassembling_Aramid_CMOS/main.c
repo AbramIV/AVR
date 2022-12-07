@@ -53,13 +53,13 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define StartDelay		  60			// delay to start measuring after spindle start
-#define FaultDelay		  1200  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
+#define StartDelay		  20			// delay to start measuring after spindle start
+#define FaultDelay		  120  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  2				// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
 #define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  30			// interval between steps
+#define StepsInterval	  20			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
 #include <xc.h>
@@ -179,7 +179,7 @@ void Transmit(int f1, int f2, int ratio)
 
 short Kalman(short value, bool reset)
 {
-	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.01;
+	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.008;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -216,22 +216,34 @@ void Initialization()
 	sei();			// enable global interrupts
 }
 
-void SetDirection(int ratio)
+void SetDirection(short ratio, bool isReset)
 {	
 	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
+	if (isReset)
+	{
+		faultCounter = 0;
+		motorState = Locked;
+		stepCount = 0;
+		stepsInterval = 0;
+	}
+	
+	if (stepsInterval)	 // after motor moving step, interval before new step
+	{
+		stepsInterval--;
+		return;
+	}
+	
 	if (fabs(ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
+		if (motorState == Locked) return;
 		PulseOff;
 		RightLedOff;
 		LeftLedOff;
 		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
-		if (stepCount)
-		{
-			stepCount = 0;
-			stepsInterval = StepsInterval;
-		}
+		stepCount = 0;
+		stepsInterval = StepsInterval;
 		return;
 	}
 	
@@ -244,17 +256,9 @@ void SetDirection(int ratio)
 			PulseOff;
 			stepsInterval = StepsInterval;
 		}
-			
+		
 		return;
 	}
-	
-	if (stepsInterval)	 // after motor moving step, interval before new step
-	{
-		stepsInterval--;
-		return;
-	}
-	
-	faultCounter++;		 // ratio not in ranges, increase fault count
 	
 	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
 	{
@@ -274,9 +278,17 @@ void SetDirection(int ratio)
 			motorState = Right;
 			RightLedOn;
 			LeftLedOff;
+			PulseOn;
+			stepCount = StepDuration;
 		}
+		
+		faultCounter++;		 // ratio not in ranges, increase fault count
+		stepCount = StepDuration;
+		PulseOn;
+		return;
 	}
-	else 
+	
+	if (ratio <= RangeDown) 
 	{
 		if (motorState != Left)  // if f1 < f2 pwm is on with width 99%
 		{
@@ -284,17 +296,20 @@ void SetDirection(int ratio)
 			motorState = Left;
 			LeftLedOn;
 			RightLedOff;
+			PulseOn;
+			stepCount = StepDuration;
 		}
+		
+		faultCounter++;		 // ratio not in ranges, increase fault count
+		stepCount = StepDuration;
+		PulseOn;
 	}
-	
-	PulseOn;
-	stepCount = StepDuration;	 // set duration of pwm work
 }
 							   					
 int main(void)
 {
 	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
-	int f1 = 0, f2 = 0, ratio = 0;
+	short f1 = 0, f2 = 0, ratio = 0;
 	bool run = false;
 	
 	Initialization();
@@ -321,7 +336,7 @@ int main(void)
 				if (Fault) FaultOff;
 				Timer0(false);
 				Timer1(false);
-				SetDirection(0);	// reset function counters
+				SetDirection(0, true);	// reset function counters
 				Kalman(0, true);
 				f1_measureFaults = 0;
 				f2_measureFaults = 0;
@@ -345,8 +360,8 @@ int main(void)
 				if (f1 <= f2) ratio = Kalman((1-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
 				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
 				
-				if (!startDelayCount) SetDirection(ratio);									// calculation average ratio
-				Transmit(f1, f2, ratio);
+				if (!startDelayCount) SetDirection(ratio, false);									// calculation average ratio
+				//Transmit(f1, f2, ratio);
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
 				if (f2 < 10) f2_measureFaults++;   // count measure error f2
