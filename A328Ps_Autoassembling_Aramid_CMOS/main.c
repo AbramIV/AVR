@@ -53,8 +53,8 @@
 #define Left 			  20
 #define Locked			  30
 	
-#define StartDelay		  20			// delay to start measuring after spindle start
-#define FaultDelay		  120  		// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
+#define StartDelay		  30			// delay to start measuring after spindle start
+#define FaultDelay		  200  			// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  2				// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
@@ -261,12 +261,10 @@ void SetDirection(short ratio, bool isReset)
 	}
 	
 	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
-	{
-		FaultOn;					
+	{					
 		PulseOff;
 		FaultLedOn;
-		faultCounter = 0;
-		motorState = Locked;
+		FaultOn;
 		return;
 	}
 	
@@ -350,8 +348,8 @@ int main(void)
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
-				f2 = TCNT1;										// calculation f2	(polyamide)
+				f1 = (short)TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
+				f2 = (short)TCNT1;										// calculation f2	(polyamide)
 	
 				TCNT0 = 0;					  // reset count registers after receiving values
 				TCNT1 = 0;
@@ -360,7 +358,7 @@ int main(void)
 				if (f1 <= f2) ratio = Kalman((1-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
 				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
 				
-				if (!startDelayCount) SetDirection(ratio, false);									// calculation average ratio
+				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
 				//Transmit(f1, f2, ratio);
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
@@ -369,9 +367,9 @@ int main(void)
 				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
 				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
 				{
-					FaultOn;
 					PulseOff;
 					FaultLedOn;
+					FaultOn;
 					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
 				}
 			}
