@@ -73,6 +73,7 @@
 volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 volatile bool handleAfterSecond = false;		   // flag to handle data, every second
+volatile bool handleAfter8ms = false;
 
 void Timer0(bool enable)
 {
@@ -121,7 +122,8 @@ void Timer2(bool enable)
 ISR(TIMER2_OVF_vect)
 {	
 	timer2_overflowCount++;					 // increase overflow variable
-
+	handleAfter8ms = true;
+	
 	if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
 	{
 		handleAfterSecond = true;			 // set flag to handle data
@@ -129,52 +131,6 @@ ISR(TIMER2_OVF_vect)
 	}
 											 // load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
-}
-
-void USART(unsigned short option)
-{
-	switch (option)
-	{
-		case On:
-			UCSR0B |= (1 << TXEN0);
-			break;
-		case Off:
-			UCSR0B |= (0 << TXEN0);
-			break;
-		default:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0  =  3;
-			break;
-	}
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
-}
-
-void Transmit(int f1, int f2, int ratio)
-{
-	static char a[16] = { 0 }, p[16] = { 0 }, r[16] = { 0 }, buffer[64];
-	
-	sprintf(a, "A%d$", f1);
-	sprintf(p, "P%d$", f2);
-	sprintf(r, "R%d$", ratio);
-	
-	strcat(buffer, a);
-	strcat(buffer, p);
-	strcat(buffer, r);
-	
-	TxString(buffer);
-	
-	buffer[0] = '\0';
 }
 
 short Kalman(short value, bool reset)
@@ -210,9 +166,7 @@ void Initialization()
 	DDRD = 0b00000000;
 	PORTD = 0b11111111;
 
-	Timer2(true);	// timer 2 switch on
-	USART(Init);
-	USART(On);									
+	Timer2(true);	// timer 2 switch on								
 	sei();			// enable global interrupts
 }
 
@@ -303,17 +257,32 @@ void SetDirection(short ratio, bool isReset)
 		PulseOn;
 	}
 }
+
+void ShowOverfeed(short overfeed)
+{
+	
+}
 							   					
 int main(void)
 {
-	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0;
-	short f1 = 0, f2 = 0, ratio = 0;
+	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0, displayMode = Off;
+	short f1 = 0, f2 = 0, ratio = 0, overfeed = 0;
 	bool run = false;
 	
 	Initialization();
 	
     while(1)
-    {			
+    {	
+		if (handleAfter8ms)
+		{
+			if (displayMode == On)
+			{
+				ShowOverfeed(abs(overfeed));	
+			}
+			
+			handleAfter8ms = false;
+		}
+				
 		if (handleAfterSecond)	  // if second counted handle data
 		{	
 			if (Running && !run)  // initialize before start regulation
@@ -359,7 +328,6 @@ int main(void)
 				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
 				
 				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
-				//Transmit(f1, f2, ratio);
 				
 				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
 				if (f2 < 10) f2_measureFaults++;   // count measure error f2
