@@ -24,10 +24,17 @@
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
+
+#define Point		Check(PORTD, PORTD2)
+#define PointOn		High(PORTD, PORTD2)
+#define PointOff	Low(PORTD, PORTD2)
  
 #define Running		(!Check(PIND, PIND3))  // spindle run input
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
+
+#define BtnUp		Check(PIND, PIND6)     // T1 speed pulses input
+#define BtnDown		Check(PIND, PIND7)     // T1 speed pulses input
 
 #define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
 #define PulseOn		High(TCCR2A, COM2A1)
@@ -50,6 +57,8 @@
 #define StepsInterval	  20			// interval between steps
 #define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
+#define OverfeedPointer	  1
+
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -57,7 +66,9 @@
 #include <stdlib.h>			
 #include <stdbool.h>
 #include <string.h>
+#include <avr/eeprom.h>
 
+volatile unsigned short overfeed = 0;
 volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 volatile bool handleAfterSecond = false;		   // flag to handle data, every second
@@ -154,6 +165,8 @@ void Initialization()
 	DDRD = 0b00000000;
 	PORTD = 0b11111111;
 
+	overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+
 	Timer2(true);	// timer 2 switch on								
 	sei();			// enable global interrupts
 }
@@ -239,6 +252,35 @@ void SetDirection(short ratio, bool isReset)
 	}
 }
 
+void ControlButtons()
+{
+	static unsigned short overfeedUp = 0, overfeedDown = 0;
+	
+	if (BtnUp) overfeedUp = 0;
+	{
+		if (!BtnUp) overfeedUp++;
+		{
+			if (overfeedUp == 1)
+			{
+				if (overfeed < 99) overfeed++;
+				eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+			}
+		}
+	}
+	
+	if (BtnDown) overfeedDown = 0;
+	{
+		if (!BtnDown) overfeedDown++;
+		{
+			if (overfeedDown == 1)
+			{
+				if (overfeed > 0) overfeed--;
+				eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+			}
+		}
+	}	
+}
+
 void ShowOverfeed(short overfeed)
 {
 	
@@ -302,8 +344,8 @@ int main(void)
 				TCNT1 = 0;
 				timer0_overflowCount = 0;
 	
-				if (f1 <= f2) ratio = Kalman((1-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
-				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
+				if (f1 <= f2) ratio = Kalman((overfeed-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
+				else ratio = Kalman((overfeed-(float)f2/f1)*-1000, false);
 				
 				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
 				
