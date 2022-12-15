@@ -2,7 +2,7 @@
  * main.c
  *
  * Created: 11/18/2022 12:57:15 PM
- *  Author: igor.abramov
+ * Author: igor.abramov
  * OCR2A min 135 - 0.256 us - 3.2 %
  * OCR2A max 250 - 7.8 ms - 96 %   
  * flip-flop T ~ 6.2 ms
@@ -14,11 +14,12 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
-#define PulsePin	Check(PORTB, PORTB3)	// PWM pin
 
 #define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB2)
 #define FaultOff	Low(PORTB, PORTB2)
+
+#define PulsePin	Check(PORTB, PORTB3)	// PWM pin
 
 #define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
 #define LedOn		High(PORTB, PORTB5)
@@ -49,7 +50,6 @@
 #define Locked			  30
 	
 #define StartDelay		  30			// delay to start measuring after spindle start
-#define FaultDelay		  200  			// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
 #define Setpoint		  2				// ratio value for stop motor
 #define RangeUp			  4				// if ratio > range up then motor moves left
 #define RangeDown		  -4			// if ratio < range down then motor moves right
@@ -68,7 +68,8 @@
 #include <string.h>
 #include <avr/eeprom.h>
 
-volatile unsigned short overfeed = 0;
+volatile short overfeed = 0;
+volatile bool overfeedChanged = true;
 volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 volatile bool handleAfterSecond = false;		   // flag to handle data, every second
@@ -173,11 +174,10 @@ void Initialization()
 
 void SetDirection(short ratio, bool isReset)
 {	
-	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
+	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
 	if (isReset)
 	{
-		faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
 		stepsInterval = 0;
@@ -193,7 +193,6 @@ void SetDirection(short ratio, bool isReset)
 	{
 		if (motorState == Locked) return;
 		PulseOff;
-		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
 		stepsInterval = StepsInterval;
@@ -213,13 +212,6 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
-	{					
-		PulseOff;
-		FaultOn;
-		return;
-	}
-	
 	if (ratio >= RangeUp) 
 	{
 		if (motorState != Right) // if f1 < f2 pwm is on with width < 1 %
@@ -230,7 +222,6 @@ void SetDirection(short ratio, bool isReset)
 			stepCount = StepDuration;
 		}
 		
-		faultCounter++;		 // ratio not in ranges, increase fault count
 		stepCount = StepDuration;
 		PulseOn;
 		return;
@@ -246,7 +237,6 @@ void SetDirection(short ratio, bool isReset)
 			stepCount = StepDuration;
 		}
 		
-		faultCounter++;		 // ratio not in ranges, increase fault count
 		stepCount = StepDuration;
 		PulseOn;
 	}
@@ -281,15 +271,33 @@ void ControlButtons()
 	}	
 }
 
-void ShowOverfeed(short overfeed)
+void ShowOverfeed()
 {
+	static unsigned short dozens = 0, units = 0;
 	
+	if (overfeedChanged)
+	{
+		dozens = abs(overfeed) / 10;
+		units = abs(overfeed) % 10;
+		overfeedChanged = false;
+	}
+	
+	if (Check(PORTC, PORTC5)) 
+	{
+		PORTC = 0xD0 | units;
+		if (Point) PointOff;
+	}
+	else 
+	{
+		PORTC = 0xE0 | dozens;
+		if (overfeed < 0) PointOn;
+	}
 }
 							   					
 int main(void)
 {
-	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0, displayMode = Off;
-	short f1 = 0, f2 = 0, ratio = 0, overfeed = 0;
+	unsigned short startDelayCount = StartDelay, displayMode = Off;
+	short f1 = 0, f2 = 0, ratio = 0;
 	bool run = false;
 	
 	Initialization();
@@ -298,10 +306,9 @@ int main(void)
     {	
 		if (handleAfter8ms)
 		{
-			if (displayMode == On)
-			{
-				ShowOverfeed(abs(overfeed));	
-			}
+			ControlButtons();
+			
+			if (displayMode == On) ShowOverfeed();	
 			
 			handleAfter8ms = false;
 		}
@@ -311,7 +318,8 @@ int main(void)
 			if (Running && !run)  // initialize before start regulation
 			{
 				run = true;
-				startDelayCount = StartDelay;  // set seconds for pause before calc
+				startDelayCount = StartDelay;  // set seconds for pause before 
+				displayMode = Off;
 				Timer0(true);
 				Timer1(true);
 			}
@@ -325,20 +333,16 @@ int main(void)
 				Timer1(false);
 				SetDirection(0, true);	// reset function counters
 				Kalman(0, true);
-				f1_measureFaults = 0;
-				f2_measureFaults = 0;
-				startDelayCount = 0;
 				run = false;
-				f1 = 0;
-				f2 = 0;
+				displayMode = On;
 			}
 					
-			if (run)	 // handle data after startDelay
+			if (run)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
 				f1 = (short)TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
-				f2 = (short)TCNT1;										// calculation f2	(polyamide)
+				f2 = (short)TCNT1;							   // calculation f2	(polyamide)
 	
 				TCNT0 = 0;					  // reset count registers after receiving values
 				TCNT1 = 0;
@@ -348,17 +352,6 @@ int main(void)
 				else ratio = Kalman((overfeed-(float)f2/f1)*-1000, false);
 				
 				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
-				
-				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
-				if (f2 < 10) f2_measureFaults++;   // count measure error f2
-				
-				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
-				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
-				{
-					PulseOff;
-					FaultOn;
-					//if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
-				}
 			}
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
