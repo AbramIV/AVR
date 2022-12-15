@@ -14,23 +14,11 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
-#define RightLed	Check(PORTB, PORTB0)	// if f1 < f2 - led on else off
-#define RightLedOn	High(PORTB, PORTB0)
-#define RightLedOff	Low(PORTB, PORTB0)
-
-#define LeftLed		Check(PORTB, PORTB1)	// if f1 > f2 - led on else off
-#define LeftLedOn	High(PORTB, PORTB1)
-#define LeftLedOff	Low(PORTB, PORTB1)
-
-#define FaultLed	Check(PORTB, PORTB2)	// if fault - led on before next start or reset
-#define FaultLedOn	High(PORTB, PORTB2)
-#define FaultLedOff	Low(PORTB, PORTB2)
-
 #define PulsePin	Check(PORTB, PORTB3)	// PWM pin
 
-#define Fault		Check(PORTB, PORTB4)	// output for open contact of yarn brake
-#define FaultOn		High(PORTB, PORTB4)
-#define FaultOff	Low(PORTB, PORTB4)
+#define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
+#define FaultOn		High(PORTB, PORTB2)
+#define FaultOff	Low(PORTB, PORTB2)
 
 #define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
 #define LedOn		High(PORTB, PORTB5)
@@ -192,8 +180,6 @@ void SetDirection(short ratio, bool isReset)
 	{
 		if (motorState == Locked) return;
 		PulseOff;
-		RightLedOff;
-		LeftLedOff;
 		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
@@ -217,7 +203,6 @@ void SetDirection(short ratio, bool isReset)
 	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
 	{					
 		PulseOff;
-		FaultLedOn;
 		FaultOn;
 		return;
 	}
@@ -228,8 +213,6 @@ void SetDirection(short ratio, bool isReset)
 		{
 			OCR2A = 135;
 			motorState = Right;
-			RightLedOn;
-			LeftLedOff;
 			PulseOn;
 			stepCount = StepDuration;
 		}
@@ -246,8 +229,6 @@ void SetDirection(short ratio, bool isReset)
 		{
 			OCR2A = 250;
 			motorState = Left;
-			LeftLedOn;
-			RightLedOff;
 			PulseOn;
 			stepCount = StepDuration;
 		}
@@ -287,9 +268,6 @@ int main(void)
 		{	
 			if (Running && !run)  // initialize before start regulation
 			{
-				FaultLedOff;
-				RightLedOff;
-				LeftLedOff;
 				run = true;
 				startDelayCount = StartDelay;  // set seconds for pause before calc
 				Timer0(true);
@@ -336,9 +314,8 @@ int main(void)
 				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
 				{
 					PulseOff;
-					FaultLedOn;
 					FaultOn;
-					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
+					//if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
 				}
 			}
 			
