@@ -14,7 +14,6 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
-
 #define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB2)
 #define FaultOff	Low(PORTB, PORTB2)
@@ -46,6 +45,7 @@
 #define Init			  2
 #define Setting			  3
 #define	Current			  4
+#define Error			  5
 
 #define Right	 		  10			// move directions of motor
 #define Left 			  20
@@ -68,10 +68,9 @@ const unsigned short HYSTERESIS = 4;
 const unsigned short PULSE_DURATION = 2;
 const unsigned short INTERVAL_BETWEEN_PULSES = 20;
 
-const unsigned short ERROR_MOTOR = 0;
 const unsigned short ERROR_F1 = 1;
 const unsigned short ERROR_F2 = 2;
-const unsigned short ERROR = 4;
+const unsigned short ERROR_MOTOR = 3;
 
 unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
@@ -86,6 +85,7 @@ unsigned short displaySettingCount = 0;
 
 bool pulseBan = false;
 unsigned short pulseBanCount = 0;
+unsigned short currentError = 0;
 
 void Timer0(bool enable)
 {
@@ -245,6 +245,8 @@ void ControlButtons()
 {
 	static unsigned short overfeedUp = 0, overfeedDown = 0;
 	
+	if (displayMode == Error) return;
+	
 	displayMode = Current;
 	displaySettingCount = 5;
 	
@@ -317,6 +319,20 @@ void ShowCurrent(short value)
 		if (value < 0) PointOn;
 	}
 }
+	
+void ShowError()
+{
+	static bool blink = false;
+	
+	if (blink)
+	{
+		PORTC = 0xD0 | currentError;
+		if (Point) PointOff;
+		return;
+	}	
+	
+	PORTC |= 0x30;
+}
 							   					
 int main(void)
 {
@@ -334,6 +350,7 @@ int main(void)
 			
 			if (displayMode == Setting) ShowSetting();	
 			if (displayMode == Current)	ShowCurrent(ratio);
+			if (displayMode == Error) ShowError();
 			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
