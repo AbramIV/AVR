@@ -44,20 +44,14 @@
 #define Off				  0				// hardware features modes
 #define On				  1
 #define Init			  2
+#define Setting			  3
+#define	Current			  4
 
 #define Right	 		  10			// move directions of motor
 #define Left 			  20
 #define Locked			  30
-	
-#define StartDelay		  30			// delay to start measuring after spindle start
-#define Setpoint		  2				// ratio value for stop motor
-#define RangeUp			  4				// if ratio > range up then motor moves left
-#define RangeDown		  -4			// if ratio < range down then motor moves right
-#define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  20			// interval between steps
-#define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
 
-#define OverfeedPointer	  1
+#define OverfeedPointer	  0
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -68,12 +62,30 @@
 #include <string.h>
 #include <avr/eeprom.h>
 
-volatile short overfeed = 0;
-volatile bool overfeedChanged = true;
-volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
-volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
-volatile bool handleAfterSecond = false;		   // flag to handle data, every second
-volatile bool handleAfter8ms = false;
+const unsigned short START_DELAY = 30;
+const unsigned short SETPOINT = 2;
+const unsigned short HYSTERESIS = 4;
+const unsigned short PULSE_DURATION = 2;
+const unsigned short INTERVAL_BETWEEN_PULSES = 20;
+
+const unsigned short ERROR_MOTOR = 0;
+const unsigned short ERROR_F1 = 1;
+const unsigned short ERROR_F2 = 2;
+const unsigned short ERROR = 4;
+
+unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
+unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
+bool handleAfterSecond = false;		   // flag to handle data, every second
+bool handleAfter8ms = false;
+
+short overfeed = 0;
+bool overfeedChanged = true;
+
+unsigned short displayMode = Off;
+unsigned short displaySettingCount = 0;
+
+bool pulseBan = false;
+unsigned short pulseBanCount = 0;
 
 void Timer0(bool enable)
 {
@@ -189,13 +201,13 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (fabs(ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(ratio) <= SETPOINT)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		if (motorState == Locked) return;
 		PulseOff;
 		motorState = Locked;
 		stepCount = 0;
-		stepsInterval = StepsInterval;
+		stepsInterval = INTERVAL_BETWEEN_PULSES;
 		return;
 	}
 	
@@ -206,38 +218,25 @@ void SetDirection(short ratio, bool isReset)
 		if (stepCount < 1)	   // if stepCount reached 0 motor stopped
 		{
 			PulseOff;
-			stepsInterval = StepsInterval;
+			stepsInterval = INTERVAL_BETWEEN_PULSES;
 		}
 		
 		return;
 	}
 	
-	if (ratio >= RangeUp) 
+	if (ratio >= HYSTERESIS) 
 	{
-		if (motorState != Right) // if f1 < f2 pwm is on with width < 1 %
-		{
-			OCR2A = 135;
-			motorState = Right;
-			PulseOn;
-			stepCount = StepDuration;
-		}
-		
-		stepCount = StepDuration;
+		OCR2A = 135;
+		motorState = Right;
+		stepCount = PULSE_DURATION;
 		PulseOn;
-		return;
 	}
 	
-	if (ratio <= RangeDown) 
+	if (ratio <= (HYSTERESIS*(-1))) 
 	{
-		if (motorState != Left)  // if f1 < f2 pwm is on with width 99%
-		{
-			OCR2A = 250;
-			motorState = Left;
-			PulseOn;
-			stepCount = StepDuration;
-		}
-		
-		stepCount = StepDuration;
+		OCR2A = 250;
+		motorState = Left;
+		stepCount = PULSE_DURATION;
 		PulseOn;
 	}
 }
@@ -246,6 +245,9 @@ void ControlButtons()
 {
 	static unsigned short overfeedUp = 0, overfeedDown = 0;
 	
+	displayMode = Current;
+	displaySettingCount = 5;
+	
 	if (BtnUp) overfeedUp = 0;
 	{
 		if (!BtnUp) overfeedUp++;
@@ -253,7 +255,7 @@ void ControlButtons()
 			if (overfeedUp == 1)
 			{
 				if (overfeed < 99) overfeed++;
-				eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+				else return;
 			}
 		}
 	}
@@ -265,13 +267,16 @@ void ControlButtons()
 			if (overfeedDown == 1)
 			{
 				if (overfeed > 0) overfeed--;
-				eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+				else return;
 			}
 		}
-	}	
+	}
+	
+	eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+	overfeedChanged = true;	
 }
 
-void ShowOverfeed()
+void ShowSetting()
 {
 	static unsigned short dozens = 0, units = 0;
 	
@@ -293,10 +298,29 @@ void ShowOverfeed()
 		if (overfeed < 0) PointOn;
 	}
 }
+
+void ShowCurrent(short value)
+{
+	static unsigned short dozens = 0, units = 0;
+	
+	dozens = abs(value) / 10;
+	units = abs(value) % 10;
+	
+	if (Check(PORTC, PORTC5))
+	{
+		PORTC = 0xD0 | units;
+		if (Point) PointOff;
+	}
+	else
+	{
+		PORTC = 0xE0 | dozens;
+		if (value < 0) PointOn;
+	}
+}
 							   					
 int main(void)
 {
-	unsigned short startDelayCount = StartDelay, displayMode = Off;
+	unsigned short startDelayCount = 0;
 	short f1 = 0, f2 = 0, ratio = 0;
 	bool run = false;
 	
@@ -308,7 +332,9 @@ int main(void)
 		{
 			ControlButtons();
 			
-			if (displayMode == On) ShowOverfeed();	
+			if (displayMode == Setting) ShowSetting();	
+			if (displayMode == Current)	ShowCurrent(ratio);
+			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
 		}
@@ -318,8 +344,8 @@ int main(void)
 			if (Running && !run)  // initialize before start regulation
 			{
 				run = true;
-				startDelayCount = StartDelay;  // set seconds for pause before 
-				displayMode = Off;
+				startDelayCount = START_DELAY;  // set seconds for pause before 
+				if (!displaySettingCount) displayMode = Current;
 				Timer0(true);
 				Timer1(true);
 			}
@@ -334,7 +360,7 @@ int main(void)
 				SetDirection(0, true);	// reset function counters
 				Kalman(0, true);
 				run = false;
-				displayMode = On;
+				if (!displaySettingCount) displayMode = Off;
 			}
 					
 			if (run)						 // handle data after startDelay
@@ -355,6 +381,17 @@ int main(void)
 			}
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
+
+			if (displaySettingCount)
+			{
+				displaySettingCount--;
+				
+				if (!displaySettingCount)
+				{
+					if (run) displayMode = Current;
+					else displayMode = Off;
+				}
+			}
 
 			handleAfterSecond = false;	  // reset handle second flag
 		}
