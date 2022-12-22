@@ -80,8 +80,8 @@ bool handleAfter8ms = false;
 short overfeed = 0;
 bool overfeedChanged = true;
 
-unsigned short displayMode = Off;
-unsigned short displaySettingCount = 0;
+unsigned short displayMode = Setting;
+unsigned short displaySettingCount = 5;
 
 bool pulseBan = false;
 unsigned short pulseBanCount = 0;
@@ -172,13 +172,13 @@ void Initialization()
 	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
-	DDRC = 0b00000000;
-	PORTC = 0b11111111;
+	DDRC = 0b00111111;
+	PORTC = 0b11000000;
 	
-	DDRD = 0b00000000;
-	PORTD = 0b11111111;
+	DDRD = 0b00000100;
+	PORTD = 0b11111011;
 
-	overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+	overfeed = 2;//eeprom_read_word((uint16_t*)OverfeedPointer);
 
 	Timer2(true);	// timer 2 switch on								
 	sei();			// enable global interrupts
@@ -243,12 +243,10 @@ void SetDirection(short ratio, bool isReset)
 
 void ControlButtons()
 {
-	static unsigned short overfeedUp = 0, overfeedDown = 0;
+	static short overfeedUp = 0, overfeedDown = 0;
+	static bool isChanged = false;
 	
 	if (displayMode == Error) return;
-	
-	displayMode = Current;
-	displaySettingCount = 5;
 	
 	if (BtnUp) overfeedUp = 0;
 	{
@@ -256,7 +254,16 @@ void ControlButtons()
 		{
 			if (overfeedUp == 1)
 			{
-				if (overfeed < 99) overfeed++;
+				if (overfeed < 99) 
+				{
+					if (displayMode != Setting)
+					{
+						displayMode = Setting;
+						return;
+					}
+					overfeed++;
+					isChanged = true;
+				}
 				else return;
 			}
 		}
@@ -268,14 +275,29 @@ void ControlButtons()
 		{
 			if (overfeedDown == 1)
 			{
-				if (overfeed > 0) overfeed--;
+				if (overfeed > -99) 
+				{
+					if (displayMode != Setting) 
+					{
+						displayMode = Setting;
+						return;
+					}
+					overfeed--;
+					isChanged = true;
+				}
 				else return;
 			}
 		}
-	}
+	}	
 	
-	eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
-	overfeedChanged = true;	
+	if (isChanged)
+	{
+		eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+		displayMode = Setting;
+		displaySettingCount = 5;
+		overfeedChanged = true;
+		isChanged = false;
+	}
 }
 
 void ShowSetting()
@@ -292,12 +314,12 @@ void ShowSetting()
 	if (Check(PORTC, PORTC5)) 
 	{
 		PORTC = 0xD0 | units;
-		if (Point) PointOff;
+		if (overfeed < 0) PointOn;
 	}
 	else 
 	{
 		PORTC = 0xE0 | dozens;
-		if (overfeed < 0) PointOn;
+		if (Point) PointOff;
 	}
 }
 
@@ -311,12 +333,12 @@ void ShowCurrent(short value)
 	if (Check(PORTC, PORTC5))
 	{
 		PORTC = 0xD0 | units;
-		if (Point) PointOff;
+		if (value < 0) PointOn;
 	}
 	else
 	{
 		PORTC = 0xE0 | dozens;
-		if (value < 0) PointOn;
+		if (Point) PointOff;
 	}
 }
 	
