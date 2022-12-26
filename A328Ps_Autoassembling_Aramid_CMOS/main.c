@@ -25,9 +25,9 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
 
-#define Point		Check(PORTD, PORTD2)
-#define PointOn		High(PORTD, PORTD2)
-#define PointOff	Low(PORTD, PORTD2)
+#define Dot			Check(PORTD, PORTD2)
+#define DotOn		High(PORTD, PORTD2)
+#define DotOff		Low(PORTD, PORTD2)
  
 #define Running		(!Check(PIND, PIND3))  // spindle run input
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
@@ -40,14 +40,14 @@
 #define PulseOn		High(TCCR2A, COM2A1)
 #define PulseOff	Low(TCCR2A, COM2A1)
 
-#define Off				  0				// hardware features modes
+#define Off				  0				   // hardware features modes
 #define On				  1
 #define Init			  2
 #define Setting			  3
 #define	Current			  4
 #define Error			  5
 
-#define Right	 		  10			// move directions of motor
+#define Right	 		  10				// move directions of motor
 #define Left 			  20
 #define Locked			  30
 
@@ -64,9 +64,10 @@
 
 const unsigned short START_DELAY = 30;
 const unsigned short SETPOINT = 2;
-const unsigned short HYSTERESIS = 4;
 const unsigned short PULSE_DURATION = 2;
 const unsigned short INTERVAL_BETWEEN_PULSES = 20;
+
+const unsigned short overfeed_limit = 200;
 
 const unsigned short ERROR_F1 = 1;
 const unsigned short ERROR_F2 = 2;
@@ -77,8 +78,7 @@ unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16
 bool handleAfterSecond = false;		   // flag to handle data, every second
 bool handleAfter8ms = false;
 
-short overfeed = 0;
-bool overfeedChanged = true;
+short overfeed = 0;					 // in mm
 
 unsigned short displayMode = Setting;
 unsigned short displaySettingCount = 5;
@@ -143,6 +143,51 @@ ISR(TIMER2_OVF_vect)
 	}
 											 // load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
+}
+
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+		UCSR0B |= (1 << TXEN0);
+		break;
+		case Off:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!Check(UCSR0A, UDRE0));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit(short f1, short f2, short ratio)
+{
+	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
+	static char buffer[32] = { 0 };
+	
+	sprintf(fa, "A%d$", f1);
+	sprintf(fp, "P%d$", f2);
+	sprintf(fr, "R%d$\r\n", ratio);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
+	strcat(buffer, fr);
+	TxString(buffer);
+	
+	buffer[0] = '\0';
 }
 
 short Kalman(short value, bool reset)
@@ -224,7 +269,7 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (ratio >= HYSTERESIS) 
+	if (ratio >= 5) 
 	{
 		OCR2A = 135;
 		motorState = Right;
@@ -232,7 +277,7 @@ void SetDirection(short ratio, bool isReset)
 		PulseOn;
 	}
 	
-	if (ratio <= (HYSTERESIS*(-1))) 
+	if (ratio <= -5) 
 	{
 		OCR2A = 250;
 		motorState = Left;
@@ -254,7 +299,7 @@ void ControlButtons()
 		{
 			if (overfeedUp == 1)
 			{
-				if (overfeed < 99) 
+				if (overfeed < 200) 
 				{
 					if (displayMode != Setting)
 					{
@@ -275,7 +320,7 @@ void ControlButtons()
 		{
 			if (overfeedDown == 1)
 			{
-				if (overfeed > -99) 
+				if (overfeed > -200) 
 				{
 					if (displayMode != Setting) 
 					{
@@ -295,61 +340,68 @@ void ControlButtons()
 		eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
 		displayMode = Setting;
 		displaySettingCount = 5;
-		overfeedChanged = true;
 		isChanged = false;
 	}
 }
 
-void ShowSetting()
+void Print(short value)
 {
-	static unsigned short dozens = 0, units = 0;
+	static unsigned short dozens = 0, units = 0, uvalue = 0;
 	
-	if (overfeedChanged)
-	{
-		dozens = abs(overfeed) / 10;
-		units = abs(overfeed) % 10;
-		overfeedChanged = false;
-	}
+	uvalue = abs(value);
 	
-	if (Check(PORTC, PORTC5)) 
+	if (uvalue > 999)
 	{
-		PORTC = 0xD0 | units;
-		if (overfeed < 0) PointOn;
+		dozens = 9;
+		units = 9;
 	}
-	else 
+	else if (uvalue > 100)
 	{
-		PORTC = 0xE0 | dozens;
-		if (Point) PointOff;
+		dozens = uvalue / 100;
+		units = (uvalue / 10) % 10;
 	}
-}
-
-void ShowCurrent(short value)
-{
-	static unsigned short dozens = 0, units = 0;
-	
-	dozens = abs(value) / 10;
-	units = abs(value) % 10;
+	else
+	{
+		dozens = uvalue / 10;
+		units = uvalue % 10;	
+	}
 	
 	if (Check(PORTC, PORTC5))
 	{
 		PORTC = 0xD0 | units;
-		if (value < 0) PointOn;
+		
+		if (Dot)
+		{
+			if (value >= 0) DotOff;
+		}
+		else
+		{
+			if (value < 0) DotOn;
+		}
 	}
 	else
 	{
 		PORTC = 0xE0 | dozens;
-		if (Point) PointOff;
+		
+		if (Dot)
+		{
+			if (uvalue >= 100) DotOff;
+		}
+		else
+		{
+			if (uvalue < 100) DotOn;
+		}
 	}
 }
 	
-void ShowError()
+void PrintError()
 {
 	static bool blink = false;
 	
 	if (blink)
 	{
 		PORTC = 0xD0 | currentError;
-		if (Point) PointOff;
+		if (Dot) DotOff;
 		return;
 	}	
 	
@@ -359,10 +411,13 @@ void ShowError()
 int main(void)
 {
 	unsigned short startDelayCount = 0;
-	short f1 = 0, f2 = 0, ratio = 0;
+	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
 	bool run = false;
 	
 	Initialization();
+	
+	USART(Init);
+	USART(On);
 	
     while(1)
     {	
@@ -370,9 +425,9 @@ int main(void)
 		{
 			ControlButtons();
 			
-			if (displayMode == Setting) ShowSetting();	
-			if (displayMode == Current)	ShowCurrent(ratio);
-			if (displayMode == Error) ShowError();
+			if (displayMode == Setting) Print(overfeed);
+			if (displayMode == Current)	Print(ratio);
+			if (displayMode == Error)	PrintError();
 			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
@@ -387,6 +442,8 @@ int main(void)
 				if (!displaySettingCount) displayMode = Current;
 				Timer0(true);
 				Timer1(true);
+				handleAfterSecond = false;
+				continue;
 			}
 			
 			if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
@@ -399,6 +456,8 @@ int main(void)
 				SetDirection(0, true);	// reset function counters
 				Kalman(0, true);
 				run = false;
+				TCNT0 = 0;
+				TCNT1 = 0;
 				if (!displaySettingCount) displayMode = Off;
 			}
 					
@@ -413,10 +472,13 @@ int main(void)
 				TCNT1 = 0;
 				timer0_overflowCount = 0;
 	
-				if (f1 <= f2) ratio = Kalman((overfeed-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
-				else ratio = Kalman((overfeed-(float)f2/f1)*-1000, false);
+				if (f1 <= f2) ratio = (1-(float)f1/(f2 == 0 ? 1 : f2))*1000;
+				else ratio = (1-(float)f2/f1)*-1000;
 				
-				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
+				difference = Kalman(overfeed - ratio, false);
+
+				Transmit(f1, f2, difference);
+				if (!startDelayCount) SetDirection(difference, false);		// calculation average ratio
 			}
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
