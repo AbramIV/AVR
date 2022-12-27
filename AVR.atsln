@@ -77,6 +77,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Debugger", "A328Ps_D
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A8_Debugger", "A8_Debugger\A8_Debugger.cproj", "{5EA758C1-7C25-437E-9144-728FADA2F09A}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Industrial_Autoassembling", "A328P_Industrial_Autoassembling\A328P_Industrial_Autoassembling.cproj", "{F6401C6F-200F-401C-85BD-8481F4962EF7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -135,6 +137,10 @@ Global
 		{5EA758C1-7C25-437E-9144-728FADA2F09A}.Debug|AVR.Build.0 = Debug|AVR
 		{5EA758C1-7C25-437E-9144-728FADA2F09A}.Release|AVR.ActiveCfg = Release|AVR
 		{5EA758C1-7C25-437E-9144-728FADA2F09A}.Release|AVR.Build.0 = Release|AVR
+		{F6401C6F-200F-401C-85BD-8481F4962EF7}.Debug|AVR.ActiveCfg = Debug|AVR
+		{F6401C6F-200F-401C-85BD-8481F4962EF7}.Debug|AVR.Build.0 = Debug|AVR
+		{F6401C6F-200F-401C-85BD-8481F4962EF7}.Release|AVR.ActiveCfg = Release|AVR
+		{F6401C6F-200F-401C-85BD-8481F4962EF7}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

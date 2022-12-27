@@ -1,14 +1,10 @@
 /*
- * main.c
+ * A328P_Industrial_Autoassembling.c
  *
- * Created: 11/18/2022 12:57:15 PM
- * Author: igor.abramov
- * OCR2A min 135 - 0.256 us - 3.2 %
- * OCR2A max 250 - 7.8 ms - 96 %   
- * flip-flop T ~ 6.2 ms
- * CC4R4
- */  
-			
+ * Created: 27.12.2022 21:34:47
+ * Author : Abramov IV
+ */ 
+
 #define Check(REG,BIT) (REG & (1<<BIT))	    // check bit
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))	// invert bit
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
@@ -28,7 +24,7 @@
 #define Dot			Check(PORTD, PORTD2)
 #define DotOn		High(PORTD, PORTD2)
 #define DotOff		Low(PORTD, PORTD2)
- 
+
 #define Running		(!Check(PIND, PIND3))  // spindle run input
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
@@ -53,11 +49,11 @@
 
 #define OverfeedPointer	  0
 
-#include <xc.h>
+#include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdio.h>
-#include <stdlib.h>			
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <avr/eeprom.h>
@@ -67,11 +63,11 @@ const unsigned short SETPOINT = 2;
 const unsigned short PULSE_DURATION = 2;
 const unsigned short INTERVAL_BETWEEN_PULSES = 30;
 
-const unsigned short overfeed_limit = 200;
-
 const unsigned short ERROR_F1 = 1;
 const unsigned short ERROR_F2 = 2;
-const unsigned short ERROR_MOTOR = 3;
+const unsigned short ERROR_F = 3;
+const unsigned short ERROR_MOTOR = 4;
+const unsigned short ERROR_OVERREG = 5;
 
 unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 unsigned short timer1_overflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
@@ -79,7 +75,7 @@ unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16
 bool handleAfterSecond = false;		   // flag to handle data, every second
 bool handleAfter8ms = false;
 
-short overfeed = 0;					 // in mm
+short overfeed = 0;					 // %
 
 unsigned short displayMode = Setting;
 unsigned short displaySettingCount = 5;
@@ -97,14 +93,14 @@ void Timer0(bool enable)
 		TCNT0 = 0;
 		return;
 	}
-					
-	Low(TIMSK0, TOIE0);									 
+	
+	Low(TIMSK0, TOIE0);
 	TCCR0B = 0x00;										  // stop count
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	timer0_overflowCount++;	  // increase ISR counter 
+	timer0_overflowCount++;	  // increase ISR counter
 }
 
 void Timer1(bool enable)
@@ -113,7 +109,7 @@ void Timer1(bool enable)
 	{
 		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock
 		High(TIMSK1, TOIE1);
-		TCNT1 = 0; 
+		TCNT1 = 0;
 		return;
 	}
 	
@@ -132,7 +128,7 @@ void Timer2(bool enable)
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM 
+		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
 		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
 		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
 		return;
@@ -143,7 +139,7 @@ void Timer2(bool enable)
 }
 
 ISR(TIMER2_OVF_vect)
-{	
+{
 	timer2_overflowCount++;					 // increase overflow variable
 	handleAfter8ms = true;
 	
@@ -152,7 +148,7 @@ ISR(TIMER2_OVF_vect)
 		handleAfterSecond = true;			 // set flag to handle data
 		timer2_overflowCount = 0;			 // reset overflow counter
 	}
-											 // load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
+	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
 }
 
@@ -238,7 +234,7 @@ void Initialization()
 
 	Timer2(true);	// timer 2 switch on
 	USART(Init);
-	USART(On);								
+	USART(On);
 	sei();			// enable global interrupts
 }
 
@@ -251,7 +247,7 @@ short GetRatio(short f1, short f2)
 }
 
 void SetDirection(short ratio, bool isReset)
-{	
+{
 	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
 	if (isReset)
@@ -291,7 +287,7 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (ratio >= 5) 
+	if (ratio >= 5)
 	{
 		OCR2A = 135;
 		motorState = Right;
@@ -299,7 +295,7 @@ void SetDirection(short ratio, bool isReset)
 		PulseOn;
 	}
 	
-	if (ratio <= -5) 
+	if (ratio <= -5)
 	{
 		OCR2A = 250;
 		motorState = Left;
@@ -360,16 +356,18 @@ void Print(short value)
 
 void PrintError()
 {
-	static bool blink = false;
+	static bool blink = true;
 	
 	if (blink)
 	{
 		PORTC = 0xD0 | currentError;
 		if (Dot) DotOff;
+		blink = !blink;
 		return;
 	}
 	
 	PORTC |= 0x30;
+	blink = !blink;
 }
 
 void ControlButtons()
@@ -377,15 +375,13 @@ void ControlButtons()
 	static short overfeedUp = 0, overfeedDown = 0;
 	static bool isChanged = false;
 	
-	if (displayMode == Error) return;
-	
 	if (BtnUp) overfeedUp = 0;
 	{
 		if (!BtnUp) overfeedUp++;
 		{
 			if (overfeedUp == 1)
 			{
-				if (overfeed < 200) 
+				if (overfeed < 200)
 				{
 					if (displayMode != Setting)
 					{
@@ -407,9 +403,9 @@ void ControlButtons()
 		{
 			if (overfeedDown == 1)
 			{
-				if (overfeed > -200) 
+				if (overfeed > -200)
 				{
-					if (displayMode != Setting) 
+					if (displayMode != Setting)
 					{
 						displayMode = Setting;
 						displaySettingCount = 5;
@@ -421,7 +417,7 @@ void ControlButtons()
 				else return;
 			}
 		}
-	}	
+	}
 	
 	if (isChanged)
 	{
@@ -434,12 +430,31 @@ void ControlButtons()
 
 void InstantValuesCountrol(short *p_f1, short *p_f2)
 {
+	static unsigned short errorCount = 0;
 	
+	if (*p_f1 < 10 || *p_f2 < 10)
+	{
+		errorCount++;
+		if (*p_f1 < 10) currentError = ERROR_F1;
+		if (*p_f2 < 10) currentError = ERROR_F2;
+		if (*p_f1 < 10 && *p_f2 < 10) currentError = ERROR_F;
+		if (errorCount >= 30)
+		{
+			displayMode = Error;
+			errorCount = 0;
+			FaultOn;
+		}
+		return;	
+	}
+	
+	if (errorCount) errorCount = 0;
 }
 
-void DifferenceControl(short *p_difference)
+void DifferenceControl(short *difference)
 {
-			
+	static short old = 0;
+	
+	old = *difference;	
 }
 
 void DisplayControl(bool isRun)
@@ -458,27 +473,26 @@ void DisplayControl(bool isRun)
 
 bool Start()
 {
-	 Timer0(true);
-	 Timer1(true);
-	 if (!displaySettingCount) displayMode = Current;
-	 return true;
+	Timer0(true);
+	Timer1(true);
+	currentError = Off;
+	if (!displaySettingCount) displayMode = Current;
+	return true;
 }
 
 bool Stop()
 {
 	LedOff;
 	PulseOff;
-	if (Fault) FaultOff;
+	FaultOff;
 	Timer0(false);
 	Timer1(false);
 	SetDirection(0, true);	// reset function counters
 	Kalman(0, true);
-	TCNT0 = 0;
-	TCNT1 = 0;
 	if (!displaySettingCount) displayMode = Off;
-	return false;	
+	return false;
 }
-							   		 			
+
 int main(void)
 {
 	unsigned short startDelayCount = START_DELAY;
@@ -487,8 +501,8 @@ int main(void)
 	
 	Initialization();
 
-    while(1)
-    {	
+	while(1)
+	{
 		if (handleAfter8ms)
 		{
 			ControlButtons();
@@ -500,9 +514,9 @@ int main(void)
 			
 			handleAfter8ms = false;
 		}
-				
+		
 		if (handleAfterSecond)	  // if second counted handle data
-		{	
+		{
 			if (Running && !run)  // initialize before start regulation
 			{
 				run = Start();
@@ -510,31 +524,30 @@ int main(void)
 				continue;
 			}
 			
-			if (!Running && run) 
+			if (!Running && run)
 			{
 				run = Stop();
 				startDelayCount = START_DELAY;
 			}
-					
+			
 			if (run)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
 				f1 = (short)TCNT0 + timer0_overflowCount*256;    // calculation f1	(aramid)
 				f2 = (short)TCNT1 + timer1_overflowCount*65535L; // calculation f2	(polyamide)
-	
+				
 				InstantValuesCountrol(&f1, &f2);
-	
+				
 				ratio = GetRatio(f1, f2);
 				difference = Kalman(overfeed - ratio, false);
 				
-				
-				if (!startDelayCount) 
+				if (!startDelayCount)
 				{
 					DifferenceControl(&difference);
 					if (!pulseIsLocked) SetDirection(difference, false);		// calculation average ratio
 				}
-			
+				
 				TCNT0 = 0;					  // reset count registers after receiving values
 				TCNT1 = 0;
 				timer0_overflowCount = 0;
@@ -546,5 +559,5 @@ int main(void)
 
 			handleAfterSecond = false;	  // reset handle second flag
 		}
-    }
+	}
 }
