@@ -356,18 +356,14 @@ void Print(short value)
 
 void PrintError()
 {
-	static bool blink = true;
-	
-	if (blink)
+	if (Check(PORTC, PORTC4) && Check(PORTC, PORTC5))
 	{
-		PORTC = 0xD0 | currentError;
+		PORTC = 0xE0 | currentError;
 		if (Dot) DotOff;
-		blink = !blink;
 		return;
 	}
 	
 	PORTC |= 0x30;
-	blink = !blink;
 }
 
 void ControlButtons()
@@ -489,7 +485,7 @@ bool Stop()
 	Timer1(false);
 	SetDirection(0, true);	// reset function counters
 	Kalman(0, true);
-	if (!displaySettingCount) displayMode = Off;
+	if (!displaySettingCount && displayMode != Error) displayMode = Off;
 	return false;
 }
 
@@ -509,7 +505,6 @@ int main(void)
 			
 			if (displayMode == Setting) Print(overfeed);
 			if (displayMode == Current)	Print(ratio);
-			if (displayMode == Error)	PrintError();
 			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
@@ -537,13 +532,12 @@ int main(void)
 				f1 = (short)TCNT0 + timer0_overflowCount*256;    // calculation f1	(aramid)
 				f2 = (short)TCNT1 + timer1_overflowCount*65535L; // calculation f2	(polyamide)
 				
-				InstantValuesCountrol(&f1, &f2);
-				
 				ratio = GetRatio(f1, f2);
 				difference = Kalman(overfeed - ratio, false);
 				
 				if (!startDelayCount)
 				{
+					InstantValuesCountrol(&f1, &f2);
 					DifferenceControl(&difference);
 					if (!pulseIsLocked) SetDirection(difference, false);		// calculation average ratio
 				}
@@ -556,6 +550,8 @@ int main(void)
 			if (startDelayCount) startDelayCount--;  // start delay counter
 
 			DisplayControl(run);
+			
+			if (displayMode == Error)	PrintError();
 
 			handleAfterSecond = false;	  // reset handle second flag
 		}
