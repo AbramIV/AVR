@@ -83,8 +83,8 @@ short overfeed = 0;					 // in mm
 unsigned short displayMode = Setting;
 unsigned short displaySettingCount = 5;
 
-bool pulseBan = false;
-unsigned short pulseBanCount = 0;
+bool pulseIsLocked = false;
+unsigned short pulseLockCount = 0;
 unsigned short currentError = 0;
 
 void Timer0(bool enable)
@@ -223,7 +223,7 @@ void Initialization()
 	DDRD = 0b00000100;
 	PORTD = 0b11111011;
 
-	overfeed = 2;//eeprom_read_word((uint16_t*)OverfeedPointer);
+	overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
 
 	Timer2(true);	// timer 2 switch on								
 	sei();			// enable global interrupts
@@ -232,6 +232,14 @@ void Initialization()
 void SetDirection(short ratio, bool isReset)
 {	
 	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
+	
+	if (pulseIsLocked)
+	{
+		motorState = Locked;
+		stepCount = 0;
+		stepsInterval = 0;
+		return;
+	}
 	
 	if (isReset)
 	{
@@ -475,8 +483,10 @@ int main(void)
 				if (f1 <= f2) ratio = (1-(float)f1/(f2 == 0 ? 1 : f2))*1000;
 				else ratio = (1-(float)f2/f1)*-1000;
 				
+				if (f1 == 0 && f2 == 0) ratio = 0;
+				
 				difference = Kalman(overfeed - ratio, false);
-
+				
 				Transmit(f1, f2, difference);
 				if (!startDelayCount) SetDirection(difference, false);		// calculation average ratio
 			}
