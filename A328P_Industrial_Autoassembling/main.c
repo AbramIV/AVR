@@ -47,6 +47,8 @@
 #define Left 			  20
 #define Locked			  30
 
+#define ErrorLimit		  30
+
 #define OverfeedPointer	  0
 
 #include <avr/io.h>
@@ -238,23 +240,24 @@ void Initialization()
 	sei();			// enable global interrupts
 }
 
-short GetRatio(short f1, short f2)
+short GetRatio(short *p_f1, short *p_f2)
 {
-	if (!f1 && !f2) return 0;
+	if (!*p_f1 && !*p_f2) return 0;
 	
-	if (f1 <= f2) return (1-(float)f1/(f2 == 0 ? 1 : f2))*1000;
-	else return (1-(float)f2/f1)*-1000;
+	if (*p_f1 <= *p_f2) return (1-(float)*p_f1/(*p_f2 == 0 ? 1 : *p_f2))*1000;
+	else return (1-(float)*p_f2/(*p_f1))*-1000;
 }
 
-void SetDirection(short ratio, bool isReset)
+void SetDirection(short *p_ratio, bool isReset)
 {
-	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
+	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0, errorCount = 0;
 	
 	if (isReset)
 	{
 		motorState = Locked;
 		stepCount = 0;
 		stepsInterval = 0;
+		errorCount = 0;
 		return;
 	}
 	
@@ -264,9 +267,11 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (fabs(ratio) <= SETPOINT)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(*p_ratio) <= SETPOINT)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		if (motorState == Locked) return;
+		if (errorCount > 0) errorCount = 0;
+		
 		PulseOff;
 		motorState = Locked;
 		stepCount = 0;
@@ -287,7 +292,18 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (ratio >= 5)
+	if (motorState != Locked) errorCount++;
+	
+	if (errorCount >= ErrorLimit)
+	{
+		displayMode = Error;
+		currentError = ERROR_OVERREG;
+		errorCount = 0;
+		FaultOn;
+		return;
+	}
+	
+	if (*p_ratio >= 5)
 	{
 		OCR2A = 135;
 		motorState = Right;
@@ -295,7 +311,7 @@ void SetDirection(short ratio, bool isReset)
 		PulseOn;
 	}
 	
-	if (ratio <= -5)
+	if (*p_ratio <= -5)
 	{
 		OCR2A = 250;
 		motorState = Left;
@@ -304,11 +320,11 @@ void SetDirection(short ratio, bool isReset)
 	}
 }
 
-void Print(short value)
+void Print(short *p_value)
 {
 	static unsigned short dozens = 0, units = 0, uvalue = 0;
 	
-	uvalue = abs(value);
+	uvalue = abs(*p_value);
 	
 	if (uvalue > 999)
 	{
@@ -332,11 +348,11 @@ void Print(short value)
 		
 		if (Dot)
 		{
-			if (value >= 0) DotOff;
+			if (*p_value >= 0) DotOff;
 		}
 		else
 		{
-			if (value < 0) DotOn;
+			if (*p_value < 0) DotOn;
 		}
 	}
 	else
@@ -434,7 +450,7 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 		if (*p_f1 < 10) currentError = ERROR_F1;
 		if (*p_f2 < 10) currentError = ERROR_F2;
 		if (*p_f1 < 10 && *p_f2 < 10) currentError = ERROR_F;
-		if (errorCount >= 30)
+		if (errorCount >= ErrorLimit)
 		{
 			displayMode = Error;
 			errorCount = 0;
@@ -449,6 +465,8 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 void DifferenceControl(short *difference)
 {
 	static short old = 0;
+	
+	if (difference )
 	
 	old = *difference;	
 }
@@ -503,8 +521,8 @@ int main(void)
 		{
 			ControlButtons();
 			
-			if (displayMode == Setting) Print(overfeed);
-			if (displayMode == Current)	Print(ratio);
+			if (displayMode == Setting) Print(&overfeed);
+			if (displayMode == Current)	Print(&ratio);
 			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
@@ -532,14 +550,14 @@ int main(void)
 				f1 = (short)TCNT0 + timer0_overflowCount*256;    // calculation f1	(aramid)
 				f2 = (short)TCNT1 + timer1_overflowCount*65535L; // calculation f2	(polyamide)
 				
-				ratio = GetRatio(f1, f2);
+				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(overfeed - ratio, false);
 				
 				if (!startDelayCount)
 				{
 					InstantValuesCountrol(&f1, &f2);
 					DifferenceControl(&difference);
-					if (!pulseIsLocked) SetDirection(difference, false);		// calculation average ratio
+					if (!pulseIsLocked) SetDirection(&difference, false);		// calculation average ratio
 				}
 				
 				TCNT0 = 0;					  // reset count registers after receiving values

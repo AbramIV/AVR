@@ -454,13 +454,6 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 	if (errorCount) errorCount = 0;
 }
 
-void DifferenceControl(short *difference)
-{
-	static short old = 0;
-	
-	old = *difference;
-}
-
 void DisplayControl(bool isRun)
 {
 	if (displaySettingCount)
@@ -548,7 +541,6 @@ int main(void)
 				
 				if (!startDelayCount)
 				{
-					DifferenceControl(&difference);
 					if (!pulseIsLocked) SetDirection(difference, false);		// calculation average ratio
 				}
 				
