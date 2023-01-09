@@ -86,6 +86,16 @@ bool pulseIsLocked = false;
 unsigned short pulseLockCount = 0;
 unsigned short currentError = 0;
 
+ISR(PCINT22)
+{
+	
+}
+
+ISR(PCINT22)
+{
+	
+}
+
 void Timer0(bool enable)
 {
 	if (enable)
