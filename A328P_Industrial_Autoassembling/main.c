@@ -50,7 +50,7 @@
 #define Locked			  30
 
 #define ErrorLimit		  30
-#define DisplayTimeout	  5
+#define DisplayTimeout	  10
 
 #define OverfeedPointer			0
 #define SetPointPounter			2
@@ -61,7 +61,7 @@
 #define FactorBPointer			12
 #define FactorMeasurePointer	14
 #define FactorEstimatePointer	16
-#define FactorSpeedPointer		14
+#define FactorSpeedPointer		18
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -78,9 +78,10 @@ const unsigned short ERROR_F = 3;
 const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERREG = 5;
 
-short POINTERS[] = { OverfeedPointer, SetPointPounter, PulseDurationPointer, PulsesIntervalPointer, 
+short Pointers[] = { OverfeedPointer, SetPointPounter, PulseDurationPointer, PulsesIntervalPointer, 
 				     StartDelayPointer, FactorAPointer, FactorBPointer, FactorMeasurePointer,
 				     FactorEstimatePointer, FactorSpeedPointer };
+short ChangableValue = 0;
 
 short Overfeed = 0;
 unsigned short Setpoint = 0;       // 1
@@ -97,19 +98,24 @@ unsigned short Timer0_OverflowCount = 0;  // count of ISR timer 0 (clock from pi
 unsigned short Timer1_OverflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
 unsigned short Timer2_OverflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
 bool HandleAfterSecond = false;			  // flag to handle data, every second
-bool HandleAfter32ms = false;
+bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;					 
 
 unsigned short IndexCurrentSetting = 0;
 unsigned short InterfaceMode = Common;
 unsigned short DisplayMode = Off;
-unsigned short DisplaySettingCount = DisplayTimeout;
+unsigned short DisplaySettingCount = 0;
+unsigned short SettingExitCount = 0;
+bool Blink = false;
+bool SaveSetting = false;
 
 bool PlusPushed = false, MinusPushed = false;
 
 bool PulseIsLocked = false;
 unsigned short PulseLockCount = 0;
 unsigned short CurrentError = 0;
+
+bool IsRun = false;
 
 void Timer0(bool enable)
 {
@@ -170,7 +176,7 @@ ISR(TIMER2_OVF_vect)
 	Timer2_OverflowCount++;					 // increase overflow variable
 	HandleAfter8ms = true;
 	
-	if (Timer2_OverflowCount % 8 == 0) HandleAfter32ms = true;
+	if (Timer2_OverflowCount % 16 == 0) HandleAfter200ms = true;
 	
 	if (Timer2_OverflowCount >= 125)		 // 8*125 = 1000 ms
 	{
@@ -248,6 +254,20 @@ short Kalman(short value, bool reset)
 	return (short)CurrentEstimate;
 }
 
+void LoadSettings()
+{
+	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+	Setpoint = eeprom_read_word((uint16_t*)SetPointPounter);
+	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
+	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
+	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
+	FactorA = (float)(1+(eeprom_read_word((uint16_t*)FactorAPointer)/100));
+	FactorB = (float)(1+(eeprom_read_word((uint16_t*)FactorBPointer)/100));
+	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
+	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
+	FactorSpeed = (float)((eeprom_read_word((uint16_t*)FactorBPointer)/1000));
+}
+
 void Initialization()
 {
 	DDRB = 0b00111111;					// ports init
@@ -259,16 +279,7 @@ void Initialization()
 	DDRD = 0b00000100;
 	PORTD = 0b11111011;
 
-	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
-	Setpoint = eeprom_read_word((uint16_t*)SetPointPounter);
-	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
-	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
-	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
-	FactorA = (float)(1+(eeprom_read_word((uint16_t*)FactorAPointer)/100));
-	FactorB = (float)(1+(eeprom_read_word((uint16_t*)FactorBPointer)/100));
-	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);		   
-	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);	
-	FactorSpeed = (float)((eeprom_read_word((uint16_t*)FactorBPointer)/1000));
+	LoadSettings();
 
 	Kalman(0, true);
 	Timer2(true);	// timer 2 switch on
@@ -443,8 +454,21 @@ void ControlButtons()
 	
 	if (PlusPushed && MinusPushed)
 	{
-		if (InterfaceMode == Common) InterfaceMode = Settings;
-		if (InterfaceMode == Settings) InterfaceMode = Common;
+		if (InterfaceMode == Common) 
+		{
+			InterfaceMode = Settings;
+			DisplayMode = Settings;
+		}
+		else if (InterfaceMode == Settings) 
+		{
+			InterfaceMode = Setting;
+			DisplayMode = Setting;
+		}
+		else 
+		{
+			SaveSetting = true;
+		}
+		
 		PlusPushed = false;
 		MinusPushed = false;
 	}
@@ -472,7 +496,7 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 	if (errorCount) errorCount = 0;
 }
 
-void CommonModeControl(bool *p_isRun)
+void CommonControl()
 {
 	if (!PlusPushed && !MinusPushed && Pulse)
 	{
@@ -481,7 +505,7 @@ void CommonModeControl(bool *p_isRun)
 		return;
 	}
 	
-	if (*p_isRun && DisplayMode == Off && (PlusPushed || MinusPushed))
+	if (IsRun && DisplayMode == Off && (PlusPushed || MinusPushed))
 	{
 		DisplayMode = Current;
 		DisplaySettingCount = DisplayTimeout;
@@ -511,25 +535,81 @@ void CommonModeControl(bool *p_isRun)
 	}
 }
 
-void SettingsModeControl()
-{
-	if (DisplayMode != Settings) 
-	{
-		DisplayMode = Settings;
-		return; 
-	}
-	
+void SettingsControl()
+{	
 	if (PlusPushed)
 	{
-		
+		if (IndexCurrentSetting < 9) IndexCurrentSetting++;
 		PlusPushed = false;
 	}
 	
 	if (MinusPushed)
 	{
-		
+		if (IndexCurrentSetting > 0) IndexCurrentSetting--;
 		MinusPushed = false;
 	}
+}
+
+void SettingControl()
+{
+	short pointer = 0;
+	
+	if (SaveSetting)
+	{	
+		eeprom_update_word((uint16_t*)Pointers[IndexCurrentSetting], ChangableValue);
+		pointer = -1;
+		ChangableValue = 0;
+		PlusPushed = false;
+		MinusPushed = false;
+		InterfaceMode = Settings;
+		DisplayMode = Settings;
+		SaveSetting = false;
+		return;
+	}
+	
+	if (Pointers[IndexCurrentSetting] != pointer)
+	{
+		pointer = Pointers[IndexCurrentSetting];
+		ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+	}
+	
+	switch (Pointers[IndexCurrentSetting])
+	{
+		case OverfeedPointer:
+			if (PlusPushed && ChangableValue < 200) ChangableValue++;
+			if (MinusPushed && ChangableValue > -200) ChangableValue--;
+			break;
+		case SetPointPounter:
+			if (PlusPushed && ChangableValue < 5) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case PulseDurationPointer:
+			if (PlusPushed && ChangableValue < 3) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case PulsesIntervalPointer:
+			if (PlusPushed && ChangableValue < 60) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case StartDelayPointer:
+			if (PlusPushed && ChangableValue < 300) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case FactorAPointer:
+		case FactorBPointer:
+		case FactorSpeedPointer:
+			if (PlusPushed && ChangableValue < 99) ChangableValue++;
+			if (MinusPushed && ChangableValue > -99) ChangableValue--;
+			break;
+		case FactorMeasurePointer:
+		case FactorEstimatePointer:
+			if (PlusPushed && ChangableValue < 99) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+	}
+	
+	PlusPushed = false;
+	MinusPushed = false;
 }
 
 bool Start()
@@ -537,6 +617,8 @@ bool Start()
 	Timer0(true);
 	Timer1(true);
 	CurrentError = Off;
+	DisplayMode = Current;
+	DisplaySettingCount = DisplayTimeout;
 	return true;
 }
 
@@ -557,7 +639,6 @@ int main(void)
 {
 	unsigned short startDelayCount = StartDelay;
 	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
-	bool run = false;
 	
 	Initialization();
 
@@ -565,40 +646,59 @@ int main(void)
 	{
 		if (HandleAfter8ms)
 		{
-			if (DisplayMode == Setting)	 Print(&difference);
-			if (DisplayMode == Settings) Print(&POINTERS[IndexCurrentSetting]);
 			if (DisplayMode == Current)	 Print(&difference);
+			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);
+			if (DisplayMode == Setting)	 Print(&ChangableValue);
 			if (DisplayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			HandleAfter8ms = false;
 		}
 		
-		if (HandleAfter32ms)
+		if (HandleAfter200ms)
 		{
 			 ControlButtons();
 			 
-			 if (InterfaceMode == Common)   CommonModeControl(&run);
-			 if (InterfaceMode == Settings) SettingsModeControl();
+			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;
 			 
-			 HandleAfter32ms = false;
+			 if (InterfaceMode == Common)   CommonControl();
+			 if (InterfaceMode == Settings) SettingsControl();
+			 if (InterfaceMode == Setting)  SettingControl();
+			 
+			 HandleAfter200ms = false;
 		}
 		
 		if (HandleAfterSecond)	 
 		{
-			if (Running && !run) 
+			if (InterfaceMode == Setting)
 			{
-				run = Start();
+				if (Blink) DisplayMode = Off;
+				else DisplayMode = Setting;
+				Blink = !Blink;
+			}
+			
+			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
+			if (SettingExitCount >= 5) 
+			{
+				SettingExitCount = 0;
+				InterfaceMode = Common;
+				DisplayMode = Off;
+				LoadSettings();
+			}
+			
+			if (Running && !IsRun) 
+			{
+				IsRun = Start();
 				HandleAfterSecond = false;
 				continue;
 			}
 			
-			if (!Running && run)
+			if (!Running && IsRun)
 			{
-				run = Stop();
+				IsRun = Stop();
 				startDelayCount = StartDelay;
 			}
 			
-			if (run)						 // handle data after startDelay
+			if (IsRun)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 

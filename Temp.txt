@@ -41,3 +41,17 @@ float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
 	LastEstimate = CurrentEstimate;
 	return CurrentEstimate;	
 }
+
+
+
+
+eeprom_update_word((uint16_t*)OverfeedPointer, 10);
+	eeprom_update_word((uint16_t*)SetPointPounter, 1);
+	eeprom_update_word((uint16_t*)PulseDurationPointer, 2);
+	eeprom_update_word((uint16_t*)PulsesIntervalPointer, 4);
+	eeprom_update_word((uint16_t*)StartDelayPointer, 30);
+	eeprom_update_word((uint16_t*)FactorAPointer, 0);
+	eeprom_update_word((uint16_t*)FactorBPointer, 0);
+	eeprom_update_word((uint16_t*)FactorMeasurePointer, 5);
+	eeprom_update_word((uint16_t*)FactorEstimatePointer, 5);
+	eeprom_update_word((uint16_t*)FactorSpeedPointer, 50);
