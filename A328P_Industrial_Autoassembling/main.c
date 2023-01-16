@@ -29,8 +29,8 @@
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
 
-#define BtnUp		Check(PIND, PIND6)     // T1 speed pulses input
-#define BtnDown		Check(PIND, PIND7)     // T1 speed pulses input
+#define BtnPlus		Check(PIND, PIND6)     // T1 speed pulses input
+#define BtnMinus	Check(PIND, PIND7)     // T1 speed pulses input
 
 #define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
 #define PulseOn		High(TCCR2A, COM2A1)
@@ -42,14 +42,26 @@
 #define Setting			  3
 #define	Current			  4
 #define Error			  5
+#define Common			  6
+#define Settings		  7
 
 #define Right	 		  10				// move directions of motor
 #define Left 			  20
 #define Locked			  30
 
 #define ErrorLimit		  30
+#define DisplayTimeout	  5
 
-#define OverfeedPointer	  0
+#define OverfeedPointer			0
+#define SetPointPounter			2
+#define PulseDurationPointer    4
+#define PulsesIntervalPointer	6
+#define StartDelayPointer		8
+#define FactorAPointer			10
+#define FactorBPointer			12
+#define FactorMeasurePointer	14
+#define FactorEstimatePointer	16
+#define FactorSpeedPointer		14
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -60,31 +72,44 @@
 #include <string.h>
 #include <avr/eeprom.h>
 
-const unsigned short START_DELAY = 30;
-const unsigned short SETPOINT = 2;
-const unsigned short PULSE_DURATION = 2;
-const unsigned short INTERVAL_BETWEEN_PULSES = 30;
-
 const unsigned short ERROR_F1 = 1;
 const unsigned short ERROR_F2 = 2;
 const unsigned short ERROR_F = 3;
 const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERREG = 5;
 
-unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
-unsigned short timer1_overflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
-unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
-bool handleAfterSecond = false;		   // flag to handle data, every second
-bool handleAfter8ms = false;
+short POINTERS[] = { OverfeedPointer, SetPointPounter, PulseDurationPointer, PulsesIntervalPointer, 
+				     StartDelayPointer, FactorAPointer, FactorBPointer, FactorMeasurePointer,
+				     FactorEstimatePointer, FactorSpeedPointer };
 
-short overfeed = 0;					 // %
+short Overfeed = 0;
+unsigned short Setpoint = 0;       // 1
+unsigned short PulseDuration = 0;  // 2
+unsigned short PulsesInterval = 0; // 4
+unsigned short StartDelay = 0;     // 30
+float FactorA = 0;				   // 1
+float FactorB = 0;				   // 1
+short FactorMeasure	= 0;		   // 5
+short FactorEstimate = 0;		   // 5
+float FactorSpeed = 0;             // 0.05
 
-unsigned short displayMode = Setting;
-unsigned short displaySettingCount = 5;
+unsigned short Timer0_OverflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
+unsigned short Timer1_OverflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
+unsigned short Timer2_OverflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
+bool HandleAfterSecond = false;			  // flag to handle data, every second
+bool HandleAfter32ms = false;
+bool HandleAfter8ms = false;					 
 
-bool pulseIsLocked = false;
-unsigned short pulseLockCount = 0;
-unsigned short currentError = 0;
+unsigned short IndexCurrentSetting = 0;
+unsigned short InterfaceMode = Common;
+unsigned short DisplayMode = Off;
+unsigned short DisplaySettingCount = DisplayTimeout;
+
+bool PlusPushed = false, MinusPushed = false;
+
+bool PulseIsLocked = false;
+unsigned short PulseLockCount = 0;
+unsigned short CurrentError = 0;
 
 void Timer0(bool enable)
 {
@@ -102,7 +127,7 @@ void Timer0(bool enable)
 
 ISR(TIMER0_OVF_vect)
 {
-	timer0_overflowCount++;	  // increase ISR counter
+	Timer0_OverflowCount++;	  // increase ISR counter
 }
 
 void Timer1(bool enable)
@@ -121,7 +146,7 @@ void Timer1(bool enable)
 
 ISR(TIMER1_OVF_vect)
 {
-	timer1_overflowCount++;
+	Timer1_OverflowCount++;
 }
 
 void Timer2(bool enable)
@@ -142,13 +167,15 @@ void Timer2(bool enable)
 
 ISR(TIMER2_OVF_vect)
 {
-	timer2_overflowCount++;					 // increase overflow variable
-	handleAfter8ms = true;
+	Timer2_OverflowCount++;					 // increase overflow variable
+	HandleAfter8ms = true;
 	
-	if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
+	if (Timer2_OverflowCount % 8 == 0) HandleAfter32ms = true;
+	
+	if (Timer2_OverflowCount >= 125)		 // 8*125 = 1000 ms
 	{
-		handleAfterSecond = true;			 // set flag to handle data
-		timer2_overflowCount = 0;			 // reset overflow counter
+		HandleAfterSecond = true;			 // set flag to handle data
+		Timer2_OverflowCount = 0;			 // reset overflow counter
 	}
 	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
@@ -183,14 +210,14 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(short f1, short f2, short ratio)
+void Transmit(short *f1, short *f2, short *ratio)
 {
 	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
 	static char buffer[32] = { 0 };
 	
-	sprintf(fa, "A%d$", f1);
-	sprintf(fp, "P%d$", f2);
-	sprintf(fr, "R%d$\r\n", ratio);
+	sprintf(fa, "A%d$", *f1);
+	sprintf(fp, "P%d$", *f2);
+	sprintf(fr, "R%d$", *ratio);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
 	strcat(buffer, fr);
@@ -201,22 +228,22 @@ void Transmit(short f1, short f2, short ratio)
 
 short Kalman(short value, bool reset)
 {
-	static float measureVariation = 5, estimateVariation = 5, speedVariation = 0.008;
+	static float estimateVariation = 0;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
 	
 	if (reset)
 	{
-		estimateVariation = 5;
+		estimateVariation = FactorEstimate;
 		CurrentEstimate = 0;
 		LastEstimate = 0;
 		Gain = 0;
 	}
 	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
+	Gain = estimateVariation / (estimateVariation + FactorMeasure);
 	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
-	estimateVariation = (1.f - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	estimateVariation = (1.f - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * (FactorSpeed/1000);
 	LastEstimate = CurrentEstimate;
 	return (short)CurrentEstimate;
 }
@@ -232,8 +259,18 @@ void Initialization()
 	DDRD = 0b00000100;
 	PORTD = 0b11111011;
 
-	overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+	Setpoint = eeprom_read_word((uint16_t*)SetPointPounter);
+	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
+	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
+	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
+	FactorA = (float)(1+(eeprom_read_word((uint16_t*)FactorAPointer)/100));
+	FactorB = (float)(1+(eeprom_read_word((uint16_t*)FactorBPointer)/100));
+	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);		   
+	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);	
+	FactorSpeed = (float)((eeprom_read_word((uint16_t*)FactorBPointer)/1000));
 
+	Kalman(0, true);
 	Timer2(true);	// timer 2 switch on
 	USART(Init);
 	USART(On);
@@ -267,7 +304,7 @@ void SetDirection(short *p_ratio, bool isReset)
 		return;
 	}
 	
-	if (fabs(*p_ratio) <= SETPOINT)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(*p_ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		if (motorState == Locked) return;
 		if (errorCount > 0) errorCount = 0;
@@ -275,7 +312,7 @@ void SetDirection(short *p_ratio, bool isReset)
 		PulseOff;
 		motorState = Locked;
 		stepCount = 0;
-		stepsInterval = INTERVAL_BETWEEN_PULSES;
+		stepsInterval = PulsesInterval;
 		return;
 	}
 	
@@ -286,7 +323,7 @@ void SetDirection(short *p_ratio, bool isReset)
 		if (stepCount < 1)	   // if stepCount reached 0 motor stopped
 		{
 			PulseOff;
-			stepsInterval = INTERVAL_BETWEEN_PULSES;
+			stepsInterval = PulsesInterval;
 		}
 		
 		return;
@@ -296,8 +333,8 @@ void SetDirection(short *p_ratio, bool isReset)
 	
 	if (errorCount >= ErrorLimit)
 	{
-		displayMode = Error;
-		currentError = ERROR_OVERREG;
+		DisplayMode = Error;
+		CurrentError = ERROR_OVERREG;
 		errorCount = 0;
 		FaultOn;
 		return;
@@ -307,7 +344,7 @@ void SetDirection(short *p_ratio, bool isReset)
 	{
 		OCR2A = 135;
 		motorState = Right;
-		stepCount = PULSE_DURATION;
+		stepCount = PulseDuration;
 		PulseOn;
 	}
 	
@@ -315,7 +352,7 @@ void SetDirection(short *p_ratio, bool isReset)
 	{
 		OCR2A = 250;
 		motorState = Left;
-		stepCount = PULSE_DURATION;
+		stepCount = PulseDuration;
 		PulseOn;
 	}
 }
@@ -374,7 +411,7 @@ void PrintError()
 {
 	if (Check(PORTC, PORTC4) && Check(PORTC, PORTC5))
 	{
-		PORTC = 0xE0 | currentError;
+		PORTC = 0xE0 | CurrentError;
 		if (Dot) DotOff;
 		return;
 	}
@@ -384,59 +421,32 @@ void PrintError()
 
 void ControlButtons()
 {
-	static short overfeedUp = 0, overfeedDown = 0;
-	static bool isChanged = false;
+	static unsigned short plus = 0, minus = 0;
 	
-	if (BtnUp) overfeedUp = 0;
+	if (!BtnPlus) plus++;
 	{
-		if (!BtnUp) overfeedUp++;
+		if (plus == 1)
 		{
-			if (overfeedUp == 1)
-			{
-				if (overfeed < 200)
-				{
-					if (displayMode != Setting)
-					{
-						displayMode = Setting;
-						displaySettingCount = 5;
-						return;
-					}
-					overfeed++;
-					isChanged = true;
-				}
-				else return;
-			}
+			PlusPushed = true;
+			plus = 0;
 		}
 	}
 	
-	if (BtnDown) overfeedDown = 0;
+	if (!BtnMinus) minus++;
 	{
-		if (!BtnDown) overfeedDown++;
+		if (minus == 1)
 		{
-			if (overfeedDown == 1)
-			{
-				if (overfeed > -200)
-				{
-					if (displayMode != Setting)
-					{
-						displayMode = Setting;
-						displaySettingCount = 5;
-						return;
-					}
-					overfeed--;
-					isChanged = true;
-				}
-				else return;
-			}
+			MinusPushed = true;
+			minus = 0;
 		}
 	}
 	
-	if (isChanged)
+	if (PlusPushed && MinusPushed)
 	{
-		eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
-		displayMode = Setting;
-		displaySettingCount = 5;
-		isChanged = false;
+		if (InterfaceMode == Common) InterfaceMode = Settings;
+		if (InterfaceMode == Settings) InterfaceMode = Common;
+		PlusPushed = false;
+		MinusPushed = false;
 	}
 }
 
@@ -447,12 +457,12 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 	if (*p_f1 < 10 || *p_f2 < 10)
 	{
 		errorCount++;
-		if (*p_f1 < 10) currentError = ERROR_F1;
-		if (*p_f2 < 10) currentError = ERROR_F2;
-		if (*p_f1 < 10 && *p_f2 < 10) currentError = ERROR_F;
+		if (*p_f1 < 10) CurrentError = ERROR_F1;
+		if (*p_f2 < 10) CurrentError = ERROR_F2;
+		if (*p_f1 < 10 && *p_f2 < 10) CurrentError = ERROR_F;
 		if (errorCount >= ErrorLimit)
 		{
-			displayMode = Error;
+			DisplayMode = Error;
 			errorCount = 0;
 			FaultOn;
 		}
@@ -462,26 +472,63 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 	if (errorCount) errorCount = 0;
 }
 
-void DifferenceControl(short *difference)
+void CommonModeControl(bool *p_isRun)
 {
-	static short old = 0;
+	if (!PlusPushed && !MinusPushed && Pulse)
+	{
+		OCR2A = 0;
+		PulseOff;
+		return;
+	}
 	
-	if (difference )
+	if (*p_isRun && DisplayMode == Off && (PlusPushed || MinusPushed))
+	{
+		DisplayMode = Current;
+		DisplaySettingCount = DisplayTimeout;
+		PlusPushed = false;
+		MinusPushed = false;
+		return;	
+	}
 	
-	old = *difference;	
+	if (PlusPushed)
+	{
+		if (OCR2A != 135 || !Pulse)
+		{
+			OCR2A = 135;
+			PulseOn;
+		}
+		PlusPushed = false;
+	}
+	
+	if (MinusPushed)
+	{
+		if (OCR2A != 250 || !Pulse)
+		{
+			OCR2A = 250;
+			PulseOn;
+		}
+		MinusPushed = false;
+	}
 }
 
-void DisplayControl(bool isRun)
+void SettingsModeControl()
 {
-	if (displaySettingCount)
+	if (DisplayMode != Settings) 
 	{
-		displaySettingCount--;
+		DisplayMode = Settings;
+		return; 
+	}
+	
+	if (PlusPushed)
+	{
 		
-		if (!displaySettingCount)
-		{
-			if (isRun) displayMode = Current;
-			else displayMode = Off;
-		}
+		PlusPushed = false;
+	}
+	
+	if (MinusPushed)
+	{
+		
+		MinusPushed = false;
 	}
 }
 
@@ -489,8 +536,7 @@ bool Start()
 {
 	Timer0(true);
 	Timer1(true);
-	currentError = Off;
-	if (!displaySettingCount) displayMode = Current;
+	CurrentError = Off;
 	return true;
 }
 
@@ -503,13 +549,13 @@ bool Stop()
 	Timer1(false);
 	SetDirection(0, true);	// reset function counters
 	Kalman(0, true);
-	if (!displaySettingCount && displayMode != Error) displayMode = Off;
+	if (!DisplaySettingCount && DisplayMode != Error) DisplayMode = Off;
 	return false;
 }
 
 int main(void)
 {
-	unsigned short startDelayCount = START_DELAY;
+	unsigned short startDelayCount = StartDelay;
 	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
 	bool run = false;
 	
@@ -517,61 +563,74 @@ int main(void)
 
 	while(1)
 	{
-		if (handleAfter8ms)
+		if (HandleAfter8ms)
 		{
-			ControlButtons();
+			if (DisplayMode == Setting)	 Print(&difference);
+			if (DisplayMode == Settings) Print(&POINTERS[IndexCurrentSetting]);
+			if (DisplayMode == Current)	 Print(&difference);
+			if (DisplayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
-			if (displayMode == Setting) Print(&overfeed);
-			if (displayMode == Current)	Print(&ratio);
-			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
-			
-			handleAfter8ms = false;
+			HandleAfter8ms = false;
 		}
 		
-		if (handleAfterSecond)	  // if second counted handle data
+		if (HandleAfter32ms)
 		{
-			if (Running && !run)  // initialize before start regulation
+			 ControlButtons();
+			 
+			 if (InterfaceMode == Common)   CommonModeControl(&run);
+			 if (InterfaceMode == Settings) SettingsModeControl();
+			 
+			 HandleAfter32ms = false;
+		}
+		
+		if (HandleAfterSecond)	 
+		{
+			if (Running && !run) 
 			{
 				run = Start();
-				handleAfterSecond = false;
+				HandleAfterSecond = false;
 				continue;
 			}
 			
 			if (!Running && run)
 			{
 				run = Stop();
-				startDelayCount = START_DELAY;
+				startDelayCount = StartDelay;
 			}
 			
 			if (run)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)TCNT0 + timer0_overflowCount*256;    // calculation f1	(aramid)
-				f2 = (short)TCNT1 + timer1_overflowCount*65535L; // calculation f2	(polyamide)
-				
+				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)*FactorA);        // calculation f1	(aramid)
+				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/5)*FactorB); // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
-				difference = Kalman(overfeed - ratio, false);
+				difference = Kalman(Overfeed - ratio, false);
+				
+				Transmit(&f1, &f2, &difference);
 				
 				if (!startDelayCount)
 				{
 					InstantValuesCountrol(&f1, &f2);
-					DifferenceControl(&difference);
-					if (!pulseIsLocked) SetDirection(&difference, false);		// calculation average ratio
+					if (!PulseIsLocked) SetDirection(&difference, false);		// calculation average ratio
 				}
 				
 				TCNT0 = 0;					  // reset count registers after receiving values
 				TCNT1 = 0;
-				timer0_overflowCount = 0;
+				Timer0_OverflowCount = 0;
 			}
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
 
-			DisplayControl(run);
+			if (DisplaySettingCount)
+			{
+				DisplaySettingCount--;
+				if (!DisplaySettingCount) DisplayMode = Off;
+			}
 			
-			if (displayMode == Error)	PrintError();
+			if (DisplayMode == Error)	PrintError();
 
-			handleAfterSecond = false;	  // reset handle second flag
+			HandleAfterSecond = false;
 		}
 	}
 }

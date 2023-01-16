@@ -650,53 +650,51 @@ void Control()
 
 int main(void)
 {
-	DDRB = 0b00101001;
+	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
-	DDRC = 0b00000000;
+	DDRC = 0b00111111;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00001010;
-	PORTD = 0b00110111;
+	DDRD = 0b00000100;
+	PORTD = 0b11111011;
 	
 	//Timer1(Counter);
 	Timer2(On);
-	Comparator();
-	USART(Init);
-	USART(On);
+	//Comparator();
+	//USART(Init);
+	//USART(On);
 	sei();
 	
-	PulseOn;
+	for (int i = 0; i < 1024; i++) eeprom_update_word((uint16_t*)i, 0);
 	
 	while(1)
 	{	
-		if (handleAfterSecond) 
+		if (handleAfterSecond)
 		{
 			LedInv;
-			TxString("Hello");
+
 			handleAfterSecond = false;
 		}
-		
-		Control();
-		
-		if (MainTimer.isr)
-		{
 
-			MainTimer.ms40++;
-			MainTimer.isr = false;
-		}
-		
-		if (MainTimer.ms200)
-		{
+		//Control();
 
-			MainTimer.ms200 = 0;
-		}
-		
-		if (MainTimer.ms1000)
-		{
-			MainTimer.sec++;
-			if (MainTimer.sec >= 59) MainTimer.sec = 0;
-			MainTimer.ms1000 = 0;
-		}
+		//if (MainTimer.isr)
+		//{
+			//MainTimer.ms40++;
+			//MainTimer.isr = false;
+		//}
+
+		//if (MainTimer.ms200)
+		//{
+			//MainTimer.ms200 = 0;
+		//}
+
+		//if (MainTimer.ms1000)
+		//{
+			//MainTimer.sec++;
+			//if (MainTimer.sec >= 59) MainTimer.sec = 0;
+			//MainTimer.ms1000 = 0;
+		//}
 	}								  
 }
