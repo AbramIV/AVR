@@ -112,7 +112,6 @@ bool ManualControl = false;
 
 bool PlusPushed = false, MinusPushed = false;
 
-bool PulseIsLocked = false;
 unsigned short PulseLockCount = 0;
 unsigned short CurrentError = 0;
 
@@ -219,15 +218,16 @@ void TxString(const char* s)
 
 void Transmit(short *f1, short *f2, short *ratio)
 {
-	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
+	static char fa[10] = { 0 }, fp[10] = { 0 };
+		//, fr[10];
 	static char buffer[32] = { 0 };
 	
-	sprintf(fa, "A%d$", *f1);
-	sprintf(fp, "P%d$", *f2);
-	sprintf(fr, "R%d$", *ratio);
+	sprintf(fa, "A%d$ ", *f1);
+	sprintf(fp, "P%d$\r\n", *f2);
+	//sprintf(fr, "R%d$", *ratio);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
-	strcat(buffer, fr);
+	//strcat(buffer, fr);
 	TxString(buffer);
 	
 	buffer[0] = '\0';
@@ -262,11 +262,11 @@ void LoadSettings()
 	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
 	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
-	FactorA = eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
-	FactorB = eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
+	FactorA = (float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
+	FactorB = (float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
-	FactorSpeed = eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
+	FactorSpeed = (float)eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
 }
 
 void Initialization()
@@ -279,6 +279,8 @@ void Initialization()
 	
 	DDRD = 0b00000100;
 	PORTD = 0b11111011;
+
+	PORTC |= 0x30;	  // display off
 
 	LoadSettings();
 
@@ -589,13 +591,16 @@ void SettingControl()
 		case FactorAPointer:
 		case FactorBPointer:
 		case FactorSpeedPointer:
-			if (PlusPushed && ChangableValue < 99) ChangableValue++;
-			if (MinusPushed && ChangableValue > -99) ChangableValue--;
-			break;
 		case FactorMeasurePointer:
 		case FactorEstimatePointer:
 			if (PlusPushed && ChangableValue < 99) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		default:
+			InterfaceMode = Settings;
+			DisplayMode = Settings;
+			IndexCurrentSetting = 0;
+			ChangableValue = 0;
 			break;
 	}
 	
@@ -628,7 +633,7 @@ bool Stop()
 
 int main(void)
 {
-	unsigned short startDelayCount = StartDelay;
+	unsigned short startDelayCount = 0;
 	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
 
 	Initialization();
@@ -674,9 +679,11 @@ int main(void)
 		if (HandleAfterSecond)	 
 		{
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
+			
 			if (SettingExitCount >= 3) 
 			{
 				SettingExitCount = 0;
+				IndexCurrentSetting = 0;
 				InterfaceMode = Common;
 				if (CurrentError) DisplayMode = Error;
 				else DisplayMode = Off;
@@ -687,21 +694,18 @@ int main(void)
 			{
 				IsRun = Start();
 				HandleAfterSecond = false;
+				startDelayCount = StartDelay;
 				continue;
 			}
 			
-			if (!Running && IsRun)
-			{
-				IsRun = Stop();
-				startDelayCount = StartDelay;
-			}
+			if (!Running && IsRun) IsRun = Stop();
 			
 			if (IsRun)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)(TCNT0 + Timer0_OverflowCount*256);//*FactorA);        // calculation f1	(aramid)
-				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)/5);//*FactorB); // calculation f2	(polyamide)
+				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)*FactorA);        // calculation f1	(aramid)
+				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)*FactorB);	 // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(Overfeed - ratio, false);
 				
@@ -710,7 +714,7 @@ int main(void)
 				if (!startDelayCount)
 				{
 					InstantValuesCountrol(&f1, &f2);
-					if (!PulseIsLocked) SetDirection(&difference, false);		// calculation average ratio
+					SetDirection(&difference, false);		// calculation average ratio
 				}
 				
 				TCNT0 = 0;					  // reset count registers after receiving values
