@@ -101,9 +101,9 @@ bool HandleAfterSecond = false;			  // flag to handle data, every second
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;					 
 
-unsigned short IndexCurrentSetting = 0;
-unsigned short InterfaceMode = Common;
+unsigned short InterfaceMode = Common;	 
 unsigned short DisplayMode = Off;
+unsigned short IndexCurrentSetting = 0;
 unsigned short DisplaySettingCount = 0;
 unsigned short SettingExitCount = 0;
 bool Blink = false;
@@ -176,7 +176,7 @@ ISR(TIMER2_OVF_vect)
 	Timer2_OverflowCount++;					 // increase overflow variable
 	HandleAfter8ms = true;
 	
-	if (Timer2_OverflowCount % 16 == 0) HandleAfter200ms = true;
+	if (Timer2_OverflowCount % 25 == 0) HandleAfter200ms = true;
 	
 	if (Timer2_OverflowCount >= 125)		 // 8*125 = 1000 ms
 	{
@@ -458,11 +458,13 @@ void ControlButtons()
 		{
 			InterfaceMode = Settings;
 			DisplayMode = Settings;
+			DisplaySettingCount = 0;
 		}
 		else if (InterfaceMode == Settings) 
 		{
 			InterfaceMode = Setting;
 			DisplayMode = Setting;
+			ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
 		}
 		else 
 		{
@@ -541,6 +543,7 @@ void SettingsControl()
 	{
 		if (IndexCurrentSetting < 9) IndexCurrentSetting++;
 		PlusPushed = false;
+		return;
 	}
 	
 	if (MinusPushed)
@@ -551,13 +554,10 @@ void SettingsControl()
 }
 
 void SettingControl()
-{
-	short pointer = 0;
-	
+{	
 	if (SaveSetting)
 	{	
 		eeprom_update_word((uint16_t*)Pointers[IndexCurrentSetting], ChangableValue);
-		pointer = -1;
 		ChangableValue = 0;
 		PlusPushed = false;
 		MinusPushed = false;
@@ -565,12 +565,6 @@ void SettingControl()
 		DisplayMode = Settings;
 		SaveSetting = false;
 		return;
-	}
-	
-	if (Pointers[IndexCurrentSetting] != pointer)
-	{
-		pointer = Pointers[IndexCurrentSetting];
-		ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
 	}
 	
 	switch (Pointers[IndexCurrentSetting])
@@ -655,33 +649,35 @@ int main(void)
 		}
 		
 		if (HandleAfter200ms)
-		{
+		{	
 			 ControlButtons();
 			 
-			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;
+			 if (InterfaceMode == Setting)
+			 {
+				 if (Blink) DisplayMode = Off;
+				 else DisplayMode = Setting;
+				 Blink = !Blink;
+			 }
 			 
 			 if (InterfaceMode == Common)   CommonControl();
 			 if (InterfaceMode == Settings) SettingsControl();
 			 if (InterfaceMode == Setting)  SettingControl();
+			 
+			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;
+			 if (InterfaceMode != Common && Pulse) PulseOff;
 			 
 			 HandleAfter200ms = false;
 		}
 		
 		if (HandleAfterSecond)	 
 		{
-			if (InterfaceMode == Setting)
-			{
-				if (Blink) DisplayMode = Off;
-				else DisplayMode = Setting;
-				Blink = !Blink;
-			}
-			
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
-			if (SettingExitCount >= 5) 
+			if (SettingExitCount >= 3) 
 			{
 				SettingExitCount = 0;
 				InterfaceMode = Common;
-				DisplayMode = Off;
+				if (CurrentError) DisplayMode = Error;
+				else DisplayMode = Off;
 				LoadSettings();
 			}
 			
