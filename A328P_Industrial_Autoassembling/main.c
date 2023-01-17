@@ -49,11 +49,11 @@
 #define Left 			  20
 #define Locked			  30
 
-#define ErrorLimit		  30
+#define ErrorLimit		  100
 #define DisplayTimeout	  10
 
 #define OverfeedPointer			0
-#define SetPointPounter			2
+#define SetpointPointer			2
 #define PulseDurationPointer    4
 #define PulsesIntervalPointer	6
 #define StartDelayPointer		8
@@ -78,7 +78,7 @@ const unsigned short ERROR_F = 3;
 const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERREG = 5;
 
-short Pointers[] = { OverfeedPointer, SetPointPounter, PulseDurationPointer, PulsesIntervalPointer, 
+short Pointers[] = { OverfeedPointer, SetpointPointer, PulseDurationPointer, PulsesIntervalPointer, 
 				     StartDelayPointer, FactorAPointer, FactorBPointer, FactorMeasurePointer,
 				     FactorEstimatePointer, FactorSpeedPointer };
 short ChangableValue = 0;
@@ -108,6 +108,7 @@ unsigned short DisplaySettingCount = 0;
 unsigned short SettingExitCount = 0;
 bool Blink = false;
 bool SaveSetting = false;
+bool ManualControl = false;
 
 bool PlusPushed = false, MinusPushed = false;
 
@@ -257,15 +258,15 @@ short Kalman(short value, bool reset)
 void LoadSettings()
 {
 	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
-	Setpoint = eeprom_read_word((uint16_t*)SetPointPounter);
+	Setpoint = eeprom_read_word((uint16_t*)SetpointPointer);
 	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
 	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
-	FactorA = (float)(1+(eeprom_read_word((uint16_t*)FactorAPointer)/100));
-	FactorB = (float)(1+(eeprom_read_word((uint16_t*)FactorBPointer)/100));
+	FactorA = eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
+	FactorB = eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
-	FactorSpeed = (float)((eeprom_read_word((uint16_t*)FactorBPointer)/1000));
+	FactorSpeed = eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
 }
 
 void Initialization()
@@ -456,6 +457,7 @@ void ControlButtons()
 	{
 		if (InterfaceMode == Common) 
 		{
+			PulseOff;
 			InterfaceMode = Settings;
 			DisplayMode = Settings;
 			DisplaySettingCount = 0;
@@ -500,13 +502,6 @@ void InstantValuesCountrol(short *p_f1, short *p_f2)
 
 void CommonControl()
 {
-	if (!PlusPushed && !MinusPushed && Pulse)
-	{
-		OCR2A = 0;
-		PulseOff;
-		return;
-	}
-	
 	if (IsRun && DisplayMode == Off && (PlusPushed || MinusPushed))
 	{
 		DisplayMode = Current;
@@ -523,6 +518,7 @@ void CommonControl()
 			OCR2A = 135;
 			PulseOn;
 		}
+		ManualControl = true;
 		PlusPushed = false;
 	}
 	
@@ -533,6 +529,7 @@ void CommonControl()
 			OCR2A = 250;
 			PulseOn;
 		}
+		ManualControl = true;
 		MinusPushed = false;
 	}
 }
@@ -573,7 +570,7 @@ void SettingControl()
 			if (PlusPushed && ChangableValue < 200) ChangableValue++;
 			if (MinusPushed && ChangableValue > -200) ChangableValue--;
 			break;
-		case SetPointPounter:
+		case SetpointPointer:
 			if (PlusPushed && ChangableValue < 5) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
 			break;
@@ -633,7 +630,7 @@ int main(void)
 {
 	unsigned short startDelayCount = StartDelay;
 	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
-	
+
 	Initialization();
 
 	while(1)
@@ -664,7 +661,12 @@ int main(void)
 			 if (InterfaceMode == Setting)  SettingControl();
 			 
 			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;
-			 if (InterfaceMode != Common && Pulse) PulseOff;
+			 
+			 if (ManualControl && BtnPlus && BtnMinus)
+			 {
+				 PulseOff;
+				 ManualControl = false;
+			 }
 			 
 			 HandleAfter200ms = false;
 		}
@@ -698,8 +700,8 @@ int main(void)
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)*FactorA);        // calculation f1	(aramid)
-				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/5)*FactorB); // calculation f2	(polyamide)
+				f1 = (short)(TCNT0 + Timer0_OverflowCount*256);//*FactorA);        // calculation f1	(aramid)
+				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)/5);//*FactorB); // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(Overfeed - ratio, false);
 				
