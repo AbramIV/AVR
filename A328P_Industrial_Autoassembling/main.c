@@ -237,23 +237,23 @@ void Transmit(short *f1, short *f2, short *ratio)
 short Kalman(short value, bool reset)
 {
 	static float estimateVariation = 0;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
+	static float currentEstimate = 0;
+	static float lastEstimate = 0;
 	static float Gain = 0;
 	
 	if (reset)
 	{
 		estimateVariation = FactorEstimate;
-		CurrentEstimate = 0;
-		LastEstimate = 0;
+		currentEstimate = 0;
+		lastEstimate = 0;
 		Gain = 0;
 	}
 	
 	Gain = estimateVariation / (estimateVariation + FactorMeasure);
-	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
-	estimateVariation = (1.f - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * (FactorSpeed/1000);
-	LastEstimate = CurrentEstimate;
-	return (short)CurrentEstimate;
+	currentEstimate = lastEstimate + Gain * (value - lastEstimate);
+	estimateVariation = (1.f - Gain) * estimateVariation + fabs(lastEstimate - currentEstimate) * FactorSpeed;
+	lastEstimate = currentEstimate;
+	return (short)currentEstimate;
 }
 
 void LoadSettings()
