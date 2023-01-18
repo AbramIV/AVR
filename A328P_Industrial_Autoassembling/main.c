@@ -218,16 +218,17 @@ void TxString(const char* s)
 
 void Transmit(short *f1, short *f2, short *ratio)
 {
-	static char fa[10] = { 0 }, fp[10] = { 0 };
-		//, fr[10];
+	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10] = { 0 };
 	static char buffer[32] = { 0 };
 	
 	sprintf(fa, "A%d$ ", *f1);
-	sprintf(fp, "P%d$\r\n", *f2);
-	//sprintf(fr, "R%d$", *ratio);
+	sprintf(fp, "P%d$ ", *f2);
+	sprintf(fr, "D%d$", *ratio);
+	
 	strcat(buffer, fa);
 	strcat(buffer, fp);
-	//strcat(buffer, fr);
+	strcat(buffer, fr);
+	
 	TxString(buffer);
 	
 	buffer[0] = '\0';
@@ -262,8 +263,8 @@ void LoadSettings()
 	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
 	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
-	FactorA = (float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
-	FactorB = (float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
+	FactorA = 1.-(float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
+	FactorB = 1.-(float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
 	FactorSpeed = (float)eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
@@ -705,7 +706,7 @@ int main(void)
 				LedInv;						 // operating LED	inversion
 
 				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)*FactorA);        // calculation f1	(aramid)
-				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)*FactorB);	 // calculation f2	(polyamide)
+				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/5)*FactorB);	 // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(Overfeed - ratio, false);
 				
