@@ -292,8 +292,8 @@ void LoadSettings()
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
 	FactorA = 1.-(float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
 	FactorB = 1.-(float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
-	DividerA = eeprom_read_word((uint16_t*)FactorAPointer);
-	DividerB = eeprom_read_word((uint16_t*)FactorBPointer);
+	DividerA = eeprom_read_word((uint16_t*)DividerAPointer);
+	DividerB = eeprom_read_word((uint16_t*)DividerBPointer);
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
 	FactorSpeed = (float)eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
@@ -749,7 +749,7 @@ int main(void)
 				LedInv;						 // operating LED	inversion
 
 				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        // calculation f1	(aramid)
-				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB);	 // calculation f2	(polyamide)
+				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	 // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(Overfeed - ratio, false);
 				
