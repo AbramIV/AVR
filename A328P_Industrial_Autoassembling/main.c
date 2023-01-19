@@ -10,31 +10,35 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
+#define Running		(!Check(PINB, PINB0))  // spindle run input 
+
+#define Led			Check(PORTB, PORTB1)	// operating led, period = 2 s during winding, if stop off
+#define LedOn		High(PORTB, PORTB1)
+#define LedOff		Low(PORTB, PORTB1)
+#define LedInv		Inv(PORTB, PORTB1)
+
 #define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB2)
 #define FaultOff	Low(PORTB, PORTB2)
 
-#define PulsePin	Check(PORTB, PORTB3)	// PWM pin
-
-#define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
-#define LedOn		High(PORTB, PORTB5)
-#define LedOff		Low(PORTB, PORTB5)
-#define LedInv		Inv(PORTB, PORTB5)
+#define Units		Check(PORTC, PORTC4)
+#define Dozens		Check(PORTC, PORTC5)
 
 #define Dot			Check(PORTD, PORTD2)
 #define DotOn		High(PORTD, PORTD2)
 #define DotOff		Low(PORTD, PORTD2)
 
-#define Running		(!Check(PIND, PIND3))  // spindle run input
+#define PulsePin	Check(PORTD, PORTD3)	// PWM pin
+
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
 
 #define BtnPlus		Check(PIND, PIND6)     // T1 speed pulses input
 #define BtnMinus	Check(PIND, PIND7)     // T1 speed pulses input
 
-#define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
-#define PulseOn		High(TCCR2A, COM2A1)
-#define PulseOff	Low(TCCR2A, COM2A1)
+#define Pulse		Check(TCCR2A, COM2B1)  // Fast PWM output 2 of timer 2
+#define PulseOn		High(TCCR2A, COM2B1)
+#define PulseOff	Low(TCCR2A, COM2B1)
 
 #define Off				  0				   // hardware features modes
 #define On				  1
@@ -49,6 +53,7 @@
 #define Left 			  20
 #define Locked			  30
 
+#define SettingExitLimit  3
 #define ErrorLimit		  100
 #define DisplayTimeout	  10
 
@@ -59,9 +64,12 @@
 #define StartDelayPointer		8
 #define FactorAPointer			10
 #define FactorBPointer			12
-#define FactorMeasurePointer	14
-#define FactorEstimatePointer	16
-#define FactorSpeedPointer		18
+#define DividerAPointer			14
+#define DividerBPointer			16
+#define FactorMeasurePointer	18
+#define FactorEstimatePointer	20
+#define FactorSpeedPointer		22
+#define DefaultSetterPointer	99
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -79,8 +87,8 @@ const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERREG = 5;
 
 short Pointers[] = { OverfeedPointer, SetpointPointer, PulseDurationPointer, PulsesIntervalPointer, 
-				     StartDelayPointer, FactorAPointer, FactorBPointer, FactorMeasurePointer,
-				     FactorEstimatePointer, FactorSpeedPointer };
+				     StartDelayPointer, FactorAPointer, FactorBPointer, DividerAPointer, DividerBPointer,
+					 FactorMeasurePointer, FactorEstimatePointer, FactorSpeedPointer, DefaultSetterPointer };
 short ChangableValue = 0;
 
 short Overfeed = 0;
@@ -90,6 +98,8 @@ unsigned short PulsesInterval = 0; // 4
 unsigned short StartDelay = 0;     // 30
 float FactorA = 0;				   // 1
 float FactorB = 0;				   // 1
+unsigned short DividerA = 0;	   // 1
+unsigned short DividerB = 0;	   // 1
 short FactorMeasure	= 0;		   // 5
 short FactorEstimate = 0;		   // 5
 float FactorSpeed = 0;             // 0.05
@@ -115,6 +125,7 @@ bool PlusPushed = false, MinusPushed = false;
 unsigned short PulseLockCount = 0;
 unsigned short CurrentError = 0;
 
+bool IsReloadSettings = false;
 bool IsRun = false;
 
 void Timer0(bool enable)
@@ -224,7 +235,7 @@ void Transmit(short *f1, short *f2, short *ratio)
 	sprintf(fa, "A%d$ ", *f1);
 	sprintf(fp, "P%d$ ", *f2);
 	sprintf(fr, "D%d$", *ratio);
-	
+
 	strcat(buffer, fa);
 	strcat(buffer, fp);
 	strcat(buffer, fr);
@@ -256,6 +267,22 @@ short Kalman(short value, bool reset)
 	return (short)currentEstimate;
 }
 
+void SetDefaultSettings()
+{
+	eeprom_update_word((uint16_t*)OverfeedPointer, 0);
+	eeprom_update_word((uint16_t*)SetpointPointer, 2);
+	eeprom_update_word((uint16_t*)PulseDurationPointer, 2);
+	eeprom_update_word((uint16_t*)PulsesIntervalPointer, 4);
+	eeprom_update_word((uint16_t*)StartDelayPointer, 30);
+	eeprom_update_word((uint16_t*)FactorAPointer, 0);
+	eeprom_update_word((uint16_t*)FactorBPointer, 0);
+	eeprom_update_word((uint16_t*)DividerAPointer, 1);
+	eeprom_update_word((uint16_t*)DividerBPointer, 1);
+	eeprom_update_word((uint16_t*)FactorMeasurePointer, 5);
+	eeprom_update_word((uint16_t*)FactorEstimatePointer, 5);
+	eeprom_update_word((uint16_t*)FactorSpeedPointer, 50);
+}
+
 void LoadSettings()
 {
 	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
@@ -265,6 +292,8 @@ void LoadSettings()
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
 	FactorA = 1.-(float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
 	FactorB = 1.-(float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
+	DividerA = eeprom_read_word((uint16_t*)FactorAPointer);
+	DividerB = eeprom_read_word((uint16_t*)FactorBPointer);
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
 	FactorSpeed = (float)eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
@@ -272,16 +301,14 @@ void LoadSettings()
 
 void Initialization()
 {
-	DDRB = 0b00111111;					// ports init
-	PORTB = 0b00000000;
+	DDRB = 0b00000110;					// ports init
+	PORTB = 0b00111001;
 	
 	DDRC = 0b00111111;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00000100;
-	PORTD = 0b11111011;
-
-	PORTC |= 0x30;	  // display off
+	DDRD = 0b00001100;
+	PORTD = 0b11110011;
 
 	LoadSettings();
 
@@ -357,7 +384,7 @@ void SetDirection(short *p_ratio, bool isReset)
 	
 	if (*p_ratio >= 5)
 	{
-		OCR2A = 135;
+		OCR2B = 135;
 		motorState = Right;
 		stepCount = PulseDuration;
 		PulseOn;
@@ -365,7 +392,7 @@ void SetDirection(short *p_ratio, bool isReset)
 	
 	if (*p_ratio <= -5)
 	{
-		OCR2A = 250;
+		OCR2B = 250;
 		motorState = Left;
 		stepCount = PulseDuration;
 		PulseOn;
@@ -394,7 +421,7 @@ void Print(short *p_value)
 		units = uvalue % 10;
 	}
 	
-	if (Check(PORTC, PORTC5))
+	if (Dozens)
 	{
 		PORTC = 0xD0 | units;
 		
@@ -424,14 +451,14 @@ void Print(short *p_value)
 
 void PrintError()
 {
-	if (Check(PORTC, PORTC4) && Check(PORTC, PORTC5))
+	if (!(Check(PORTC, PORTC4) | Check(PORTC, PORTC5)))
 	{
 		PORTC = 0xE0 | CurrentError;
 		if (Dot) DotOff;
 		return;
 	}
 	
-	PORTC |= 0x30;
+	PORTC &= 0xC0;
 }
 
 void ControlButtons()
@@ -467,9 +494,17 @@ void ControlButtons()
 		}
 		else if (InterfaceMode == Settings) 
 		{
-			InterfaceMode = Setting;
-			DisplayMode = Setting;
-			ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+			if (Pointers[IndexCurrentSetting] == DefaultSetterPointer)
+			{
+				SetDefaultSettings();
+				IsReloadSettings = true;
+			}
+			else
+			{
+				InterfaceMode = Setting;
+				DisplayMode = Setting;
+				ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+			}
 		}
 		else 
 		{
@@ -516,9 +551,9 @@ void CommonControl()
 	
 	if (PlusPushed)
 	{
-		if (OCR2A != 135 || !Pulse)
+		if (OCR2B != 135 || !Pulse)
 		{
-			OCR2A = 135;
+			OCR2B = 135;
 			PulseOn;
 		}
 		ManualControl = true;
@@ -527,9 +562,9 @@ void CommonControl()
 	
 	if (MinusPushed)
 	{
-		if (OCR2A != 250 || !Pulse)
+		if (OCR2B != 250 || !Pulse)
 		{
-			OCR2A = 250;
+			OCR2B = 250;
 			PulseOn;
 		}
 		ManualControl = true;
@@ -539,9 +574,11 @@ void CommonControl()
 
 void SettingsControl()
 {	
+	static short pcount = (sizeof(Pointers)/sizeof(Pointers[0]))-1;
+	
 	if (PlusPushed)
 	{
-		if (IndexCurrentSetting < 9) IndexCurrentSetting++;
+		if (IndexCurrentSetting < pcount) IndexCurrentSetting++;
 		PlusPushed = false;
 		return;
 	}
@@ -588,6 +625,11 @@ void SettingControl()
 		case StartDelayPointer:
 			if (PlusPushed && ChangableValue < 300) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case DividerAPointer:
+		case DividerBPointer:
+			if (PlusPushed && ChangableValue < 99) ChangableValue++;
+			if (MinusPushed && ChangableValue > 1) ChangableValue--;	
 			break;
 		case FactorAPointer:
 		case FactorBPointer:
@@ -646,7 +688,7 @@ int main(void)
 			if (DisplayMode == Current)	 Print(&difference);
 			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);
 			if (DisplayMode == Setting)	 Print(&ChangableValue);
-			if (DisplayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
+			if (DisplayMode == Off && (Check(PORTC, PORTC4) || Check(PORTC, PORTC5))) PORTC &= 0xC0;
 			
 			HandleAfter8ms = false;
 		}
@@ -681,11 +723,12 @@ int main(void)
 		{
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
 			
-			if (SettingExitCount >= 3) 
+			if (SettingExitCount >= SettingExitLimit || IsReloadSettings) 
 			{
 				SettingExitCount = 0;
 				IndexCurrentSetting = 0;
 				InterfaceMode = Common;
+				IsReloadSettings = false;
 				if (CurrentError) DisplayMode = Error;
 				else DisplayMode = Off;
 				LoadSettings();
@@ -705,8 +748,8 @@ int main(void)
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)*FactorA);        // calculation f1	(aramid)
-				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/5)*FactorB);	 // calculation f2	(polyamide)
+				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        // calculation f1	(aramid)
+				f2 = (short)(((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB);	 // calculation f2	(polyamide)
 				ratio = GetRatio(&f1, &f2);
 				difference = Kalman(Overfeed - ratio, false);
 				
