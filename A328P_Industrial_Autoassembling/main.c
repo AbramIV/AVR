@@ -30,9 +30,6 @@
 
 #define PulsePin	Check(PORTD, PORTD3)	// PWM pin
 
-#define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
-#define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
-
 #define BtnPlus		Check(PIND, PIND6)     // T1 speed pulses input
 #define BtnMinus	Check(PIND, PIND7)     // T1 speed pulses input
 
@@ -49,26 +46,32 @@
 #define Common			  6
 #define Settings		  7
 
-#define Right	 		  10				// move directions of motor
+#define Right	 		  10				
 #define Left 			  20
 #define Locked			  30
 
-#define SettingExitLimit  3
-#define ErrorLimit		  100
-#define DisplayTimeout	  10
-
 #define OverfeedPointer			0
 #define SetpointPointer			2
-#define PulseDurationPointer    4
-#define PulsesIntervalPointer	6
-#define StartDelayPointer		8
-#define FactorAPointer			10
-#define FactorBPointer			12
-#define DividerAPointer			14
-#define DividerBPointer			16
-#define FactorMeasurePointer	18
-#define FactorEstimatePointer	20
-#define FactorSpeedPointer		22
+#define HysteresisUpPointer		4
+#define HysteresisDownPointer   6
+#define PulseDurationPointer    8
+#define PulsesIntervalPointer	10
+#define StartDelayPointer		12
+#define FactorAPointer			14
+#define FactorBPointer			16
+#define DividerAPointer			18
+#define DividerBPointer			20
+#define FactorMeasurePointer	22
+#define FactorEstimatePointer	24
+#define FactorSpeedPointer		26
+#define DisplayTimeoutPointer   28
+#define IsTransmitPointer		30
+#define MeasuresLimitPointer	32
+#define MoveLackLimitPointer	34
+#define OverregLimitPointer		36
+#define OvertimeLimitPointer	38
+#define MemoryGetterPointer		90
+#define VarsGetterPointer		92
 #define DefaultSetterPointer	99
 
 #include <avr/io.h>
@@ -79,20 +82,29 @@
 #include <stdbool.h>
 #include <string.h>
 #include <avr/eeprom.h>
+#include <avr/wdt.h>
 
-const unsigned short ERROR_F1 = 1;
-const unsigned short ERROR_F2 = 2;
-const unsigned short ERROR_F = 3;
+const unsigned short ERROR_A = 1;
+const unsigned short ERROR_B = 2;
+const unsigned short ERROR_C = 3;
 const unsigned short ERROR_MOTOR = 4;
-const unsigned short ERROR_OVERREG = 5;
+const unsigned short ERROR_OVERREGULATION = 5;
+const unsigned short ERROR_OVERTIME_MOVING = 6;
 
-short Pointers[] = { OverfeedPointer, SetpointPointer, PulseDurationPointer, PulsesIntervalPointer, 
-				     StartDelayPointer, FactorAPointer, FactorBPointer, DividerAPointer, DividerBPointer,
-					 FactorMeasurePointer, FactorEstimatePointer, FactorSpeedPointer, DefaultSetterPointer };
+short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, HysteresisDownPointer, PulseDurationPointer, 
+					 PulsesIntervalPointer, StartDelayPointer, FactorAPointer, FactorBPointer, DividerAPointer, DividerBPointer,
+					 FactorMeasurePointer, FactorEstimatePointer, FactorSpeedPointer, DisplayTimeoutPointer,
+					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OverregLimitPointer, OvertimeLimitPointer,
+					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
+					 
+short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 0, 0, 1, 1, 5, 5, 50, 60, 0, 5, 5, 5, 5 };
+					 
 short ChangableValue = 0;
 
 short Overfeed = 0;
 unsigned short Setpoint = 0;       // 1
+unsigned short HysteresisUp = 0;   // 4
+short HysteresisDown = 0;		   // -4
 unsigned short PulseDuration = 0;  // 2
 unsigned short PulsesInterval = 0; // 4
 unsigned short StartDelay = 0;     // 30
@@ -100,9 +112,15 @@ float FactorA = 0;				   // 1
 float FactorB = 0;				   // 1
 unsigned short DividerA = 0;	   // 1
 unsigned short DividerB = 0;	   // 1
-short FactorMeasure	= 0;		   // 5
-short FactorEstimate = 0;		   // 5
+unsigned short FactorMeasure = 0;  // 5
+unsigned short FactorEstimate = 0; // 5
 float FactorSpeed = 0;             // 0.05
+unsigned short DisplayTimeout = 0; // 60
+unsigned short IsTransmit = 0;	   // 0
+unsigned short MeasuresLimit = 0;  // 5
+unsigned short MoveLackLimit = 0;  // 5
+unsigned short OverregLimit	= 0;   // 5
+unsigned short OvertimeLimit = 0;  // 5
 
 unsigned short Timer0_OverflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
 unsigned short Timer1_OverflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
@@ -114,13 +132,14 @@ bool HandleAfter8ms = false;
 unsigned short InterfaceMode = Common;	 
 unsigned short DisplayMode = Off;
 unsigned short IndexCurrentSetting = 0;
-unsigned short DisplaySettingCount = 0;
+unsigned short DisplayTimeoutCount = 0;
 unsigned short SettingExitCount = 0;
 bool Blink = false;
 bool SaveSetting = false;
 bool ManualControl = false;
 
-bool PlusPushed = false, MinusPushed = false;
+bool PlusPushed = false;
+bool MinusPushed = false;
 
 unsigned short PulseLockCount = 0;
 unsigned short CurrentError = 0;
@@ -267,36 +286,112 @@ short Kalman(short value, bool reset)
 	return (short)currentEstimate;
 }
 
+void UploadMemory()
+{
+	short size = sizeof(Defaults)/sizeof(short);
+	char value[16] = { 0 };
+	
+	TxString("\r\n");
+	
+	for (int i = 0; i < size; i++)
+	{
+		sprintf(value, "%d$\r\n", eeprom_read_word((uint16_t*)Pointers[i]));
+		TxString(value);
+	}	
+}
+
+void UploadVariables()
+{
+	char value[16] = { 0 };
+	
+	sprintf(value, "\r\n%d$\r\n", Overfeed);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", Setpoint);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", HysteresisUp);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", HysteresisDown);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", PulseDuration);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", PulsesInterval);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", StartDelay);
+	TxString(value);
+
+	sprintf(value, "%.2f$\r\n", FactorA);
+	TxString(value);
+
+	sprintf(value, "%.2f$\r\n", FactorB);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", DividerA);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", DividerB);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", FactorMeasure);
+	TxString(value);
+
+	sprintf(value, "%d$\r\n", FactorEstimate);
+	TxString(value);
+
+	sprintf(value, "%.3f$\r\n", FactorSpeed);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", DisplayTimeout);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", IsTransmit);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", MeasuresLimit);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", OverregLimit);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", OvertimeLimit);
+	TxString(value);
+}
+
 void SetDefaultSettings()
 {
-	eeprom_update_word((uint16_t*)OverfeedPointer, 0);
-	eeprom_update_word((uint16_t*)SetpointPointer, 2);
-	eeprom_update_word((uint16_t*)PulseDurationPointer, 2);
-	eeprom_update_word((uint16_t*)PulsesIntervalPointer, 4);
-	eeprom_update_word((uint16_t*)StartDelayPointer, 30);
-	eeprom_update_word((uint16_t*)FactorAPointer, 0);
-	eeprom_update_word((uint16_t*)FactorBPointer, 0);
-	eeprom_update_word((uint16_t*)DividerAPointer, 1);
-	eeprom_update_word((uint16_t*)DividerBPointer, 1);
-	eeprom_update_word((uint16_t*)FactorMeasurePointer, 5);
-	eeprom_update_word((uint16_t*)FactorEstimatePointer, 5);
-	eeprom_update_word((uint16_t*)FactorSpeedPointer, 50);
+	short size = sizeof(Defaults)/sizeof(short);
+	
+	for (int i = 0; i < size; i++) 
+		eeprom_update_word((uint16_t*)Pointers[i], Defaults[i]);
 }
 
 void LoadSettings()
 {
 	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
 	Setpoint = eeprom_read_word((uint16_t*)SetpointPointer);
+	HysteresisUp = eeprom_read_word((uint16_t*)HysteresisUpPointer);
+	HysteresisDown = eeprom_read_word((uint16_t*)HysteresisDownPointer);
 	PulseDuration = eeprom_read_word((uint16_t*)PulseDurationPointer);
 	PulsesInterval = eeprom_read_word((uint16_t*)PulsesIntervalPointer);
 	StartDelay = eeprom_read_word((uint16_t*)StartDelayPointer);
-	FactorA = 1.-(float)eeprom_read_word((uint16_t*)FactorAPointer)/100.f;
-	FactorB = 1.-(float)eeprom_read_word((uint16_t*)FactorBPointer)/100.f;
+	FactorA = 1.-(float)eeprom_read_word((uint16_t*)FactorAPointer)/1000.f;
+	FactorB = 1.-(float)eeprom_read_word((uint16_t*)FactorBPointer)/1000.f;
 	DividerA = eeprom_read_word((uint16_t*)DividerAPointer);
 	DividerB = eeprom_read_word((uint16_t*)DividerBPointer);
 	FactorMeasure = eeprom_read_word((uint16_t*)FactorMeasurePointer);
 	FactorEstimate = eeprom_read_word((uint16_t*)FactorEstimatePointer);
 	FactorSpeed = (float)eeprom_read_word((uint16_t*)FactorSpeedPointer)/1000.f;
+	DisplayTimeout = eeprom_read_word((uint16_t*)DisplayTimeoutPointer);
+	IsTransmit = eeprom_read_word((uint16_t*)IsTransmitPointer);
+	MeasuresLimit = eeprom_read_word((uint16_t*)MeasuresLimitPointer);
+	MoveLackLimit = eeprom_read_word((uint16_t*)MoveLackLimitPointer);  
+	OverregLimit = eeprom_read_word((uint16_t*)OverregLimitPointer);  
+	OvertimeLimit = eeprom_read_word((uint16_t*)OvertimeLimitPointer);  
 }
 
 void Initialization()
@@ -317,6 +412,8 @@ void Initialization()
 	USART(Init);
 	USART(On);
 	sei();			// enable global interrupts
+	
+	wdt_enable(WDTO_2S);
 }
 
 short GetRatio(short *p_f1, short *p_f2)
@@ -327,7 +424,7 @@ short GetRatio(short *p_f1, short *p_f2)
 	else return (1-(float)*p_f2/(*p_f1))*-1000;
 }
 
-void SetDirection(short *p_ratio, bool isReset)
+void SetDirection(short *p_difference, bool isReset)
 {
 	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0, errorCount = 0;
 	
@@ -346,7 +443,7 @@ void SetDirection(short *p_ratio, bool isReset)
 		return;
 	}
 	
-	if (fabs(*p_ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(*p_difference) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		if (motorState == Locked) return;
 		if (errorCount > 0) errorCount = 0;
@@ -373,16 +470,16 @@ void SetDirection(short *p_ratio, bool isReset)
 	
 	if (motorState != Locked) errorCount++;
 	
-	if (errorCount >= ErrorLimit)
+	if (errorCount >= ERROR_OVERREGULATION)
 	{
 		DisplayMode = Error;
-		CurrentError = ERROR_OVERREG;
+		CurrentError = ERROR_OVERREGULATION;
 		errorCount = 0;
 		FaultOn;
 		return;
 	}
 	
-	if (*p_ratio >= 5)
+	if (*p_difference >= 5)
 	{
 		OCR2B = 135;
 		motorState = Right;
@@ -390,7 +487,7 @@ void SetDirection(short *p_ratio, bool isReset)
 		PulseOn;
 	}
 	
-	if (*p_ratio <= -5)
+	if (*p_difference <= -5)
 	{
 		OCR2B = 250;
 		motorState = Left;
@@ -438,14 +535,21 @@ void Print(short *p_value)
 	{
 		PORTC = 0xE0 | dozens;
 		
-		if (Dot)
+		if (InterfaceMode == Settings) { DotOff; return; }
+		if (Pointers[IndexCurrentSetting] == OverfeedPointer ||
+			Pointers[IndexCurrentSetting] == FactorAPointer  ||
+			Pointers[IndexCurrentSetting] == FactorBPointer)
 		{
-			if (uvalue >= 100) DotOff;
+			if (Dot)
+			{
+				if (uvalue >= 100) DotOff;
+			}
+			else
+			{
+				if (uvalue < 100) DotOn;
+			}
 		}
-		else
-		{
-			if (uvalue < 100) DotOn;
-		}
+		else DotOff;
 	}
 }
 
@@ -490,20 +594,27 @@ void ControlButtons()
 			PulseOff;
 			InterfaceMode = Settings;
 			DisplayMode = Settings;
-			DisplaySettingCount = 0;
+			DisplayTimeoutCount = 0;
 		}
 		else if (InterfaceMode == Settings) 
 		{
-			if (Pointers[IndexCurrentSetting] == DefaultSetterPointer)
+			switch (Pointers[IndexCurrentSetting])
 			{
-				SetDefaultSettings();
-				IsReloadSettings = true;
-			}
-			else
-			{
-				InterfaceMode = Setting;
-				DisplayMode = Setting;
-				ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+				case DefaultSetterPointer:
+					SetDefaultSettings();
+					IsReloadSettings = true;
+					break;
+				case MemoryGetterPointer:
+					UploadMemory();
+					break;
+				case VarsGetterPointer:
+					UploadVariables();
+					break;
+				default:
+					InterfaceMode = Setting;
+					DisplayMode = Setting;
+					ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+					break;
 			}
 		}
 		else 
@@ -516,21 +627,21 @@ void ControlButtons()
 	}
 }
 
-void InstantValuesCountrol(short *p_f1, short *p_f2)
+void InstantValuesCountrol(short *p_a, short *p_b, short *p_d)
 {
 	static unsigned short errorCount = 0;
 	
-	if (*p_f1 < 10 || *p_f2 < 10)
+	if (*p_a < 10 || *p_b < 10)
 	{
 		errorCount++;
-		if (*p_f1 < 10) CurrentError = ERROR_F1;
-		if (*p_f2 < 10) CurrentError = ERROR_F2;
-		if (*p_f1 < 10 && *p_f2 < 10) CurrentError = ERROR_F;
-		if (errorCount >= ErrorLimit)
+		if (*p_a < 10) CurrentError = ERROR_A;
+		if (*p_b < 10) CurrentError = ERROR_B;
+		if (*p_a < 10 && *p_b < 10) CurrentError = ERROR_C;
+		if (errorCount >= MeasuresLimit)
 		{
+			FaultOn;
 			DisplayMode = Error;
 			errorCount = 0;
-			FaultOn;
 		}
 		return;	
 	}
@@ -543,7 +654,7 @@ void CommonControl()
 	if (IsRun && DisplayMode == Off && (PlusPushed || MinusPushed))
 	{
 		DisplayMode = Current;
-		DisplaySettingCount = DisplayTimeout;
+		DisplayTimeoutCount = DisplayTimeout;
 		PlusPushed = false;
 		MinusPushed = false;
 		return;	
@@ -611,8 +722,13 @@ void SettingControl()
 			if (MinusPushed && ChangableValue > -200) ChangableValue--;
 			break;
 		case SetpointPointer:
+		case HysteresisUpPointer:
 			if (PlusPushed && ChangableValue < 5) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case HysteresisDownPointer:
+			if (PlusPushed && ChangableValue < 0) ChangableValue++;
+			if (MinusPushed && ChangableValue > -5) ChangableValue--;
 			break;
 		case PulseDurationPointer:
 			if (PlusPushed && ChangableValue < 3) ChangableValue++;
@@ -622,21 +738,30 @@ void SettingControl()
 			if (PlusPushed && ChangableValue < 60) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
 			break;
-		case StartDelayPointer:
-			if (PlusPushed && ChangableValue < 300) ChangableValue++;
-			if (MinusPushed && ChangableValue > 0) ChangableValue--;
-			break;
 		case DividerAPointer:
 		case DividerBPointer:
+		case MeasuresLimitPointer:
+		case MoveLackLimitPointer:
+		case OverregLimitPointer:
+		case OvertimeLimitPointer:
 			if (PlusPushed && ChangableValue < 99) ChangableValue++;
 			if (MinusPushed && ChangableValue > 1) ChangableValue--;	
 			break;
 		case FactorAPointer:
 		case FactorBPointer:
+			if (PlusPushed && ChangableValue < 999) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case StartDelayPointer:
 		case FactorSpeedPointer:
 		case FactorMeasurePointer:
 		case FactorEstimatePointer:
+		case DisplayTimeoutPointer:
 			if (PlusPushed && ChangableValue < 99) ChangableValue++;
+			if (MinusPushed && ChangableValue > 0) ChangableValue--;
+			break;
+		case IsTransmitPointer:
+			if (PlusPushed && ChangableValue < 1) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
 			break;
 		default:
@@ -657,7 +782,7 @@ bool Start()
 	Timer1(true);
 	CurrentError = Off;
 	DisplayMode = Current;
-	DisplaySettingCount = DisplayTimeout;
+	DisplayTimeoutCount = DisplayTimeout;
 	return true;
 }
 
@@ -670,14 +795,14 @@ bool Stop()
 	Timer1(false);
 	SetDirection(0, true);	// reset function counters
 	Kalman(0, true);
-	if (!DisplaySettingCount && DisplayMode != Error) DisplayMode = Off;
+	if (!DisplayTimeoutCount && DisplayMode != Error) DisplayMode = Off;
 	return false;
 }
 
 int main(void)
 {
 	unsigned short startDelayCount = 0;
-	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
+	short a = 0, b = 0, r = 0, d = 0;	// a channel, b channel, ratio, difference
 
 	Initialization();
 
@@ -685,7 +810,7 @@ int main(void)
 	{
 		if (HandleAfter8ms)
 		{
-			if (DisplayMode == Current)	 Print(&difference);
+			if (DisplayMode == Current)	 Print(&d);
 			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);
 			if (DisplayMode == Setting)	 Print(&ChangableValue);
 			if (DisplayMode == Off && (Check(PORTC, PORTC4) || Check(PORTC, PORTC5))) PORTC &= 0xC0;
@@ -723,14 +848,20 @@ int main(void)
 		{
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
 			
-			if (SettingExitCount >= SettingExitLimit || IsReloadSettings) 
+			if (SettingExitCount >= 3 || IsReloadSettings) 
 			{
 				SettingExitCount = 0;
 				IndexCurrentSetting = 0;
 				InterfaceMode = Common;
 				IsReloadSettings = false;
-				if (CurrentError) DisplayMode = Error;
+				
+				if (IsRun) 
+				{
+					DisplayMode = Current;
+					DisplayTimeoutCount = DisplayTimeout;
+				}
 				else DisplayMode = Off;
+				if (CurrentError) DisplayMode = Error;
 				LoadSettings();
 			}
 			
@@ -748,17 +879,17 @@ int main(void)
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        // calculation f1	(aramid)
-				f2 = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	 // calculation f2	(polyamide)
-				ratio = GetRatio(&f1, &f2);
-				difference = Kalman(Overfeed - ratio, false);
+				a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        // calculation f1	(aramid)
+				b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	 // calculation f2	(polyamide)
+				r = GetRatio(&a, &b);
+				d = Kalman(Overfeed - r, false);
 				
-				Transmit(&f1, &f2, &difference);
+				if (IsTransmit) Transmit(&a, &b, &d);
 				
 				if (!startDelayCount)
 				{
-					InstantValuesCountrol(&f1, &f2);
-					SetDirection(&difference, false);		// calculation average ratio
+					InstantValuesCountrol(&a, &b, &d);
+					SetDirection(&d, false);		// calculation average ratio
 				}
 				
 				TCNT0 = 0;					  // reset count registers after receiving values
@@ -768,15 +899,17 @@ int main(void)
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
 
-			if (DisplaySettingCount)
+			if (DisplayTimeoutCount)
 			{
-				DisplaySettingCount--;
-				if (!DisplaySettingCount) DisplayMode = Off;
+				DisplayTimeoutCount--;
+				if (!DisplayTimeoutCount) DisplayMode = Off;
 			}
 			
 			if (DisplayMode == Error)	PrintError();
 
 			HandleAfterSecond = false;
 		}
+		
+		wdt_reset();
 	}
 }
