@@ -95,7 +95,7 @@ short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, Hyst
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
 					 
-short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 22, 0, 1, 1, 5, 5, 50, 60, 1, 5, 5, 5 };
+short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 22, 0, 1, 5, 10, 10, 45, 10, 0, 10, 5, 10 };
 					 
 short ChangableValue = 0;
 
@@ -143,9 +143,6 @@ unsigned short CurrentError = 0;
 
 bool IsReloadSettings = false;
 bool IsRun = false;
-
-extern int __bss_end;
-extern void *__brkval;
 
 void Timer0(bool enable)
 {
@@ -246,30 +243,18 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-int MemoryFree()
-{
-	int freeValue;
-	if((int)__brkval == 0)
-	freeValue = ((int)&freeValue) - ((int)&__bss_end);
-	else
-	freeValue = ((int)&freeValue) - ((int)__brkval);
-	return freeValue;
-}
-
 void Transmit(short *f1, short *f2, short *ratio)
 {
-	static char fa[8] = { 0 }, fp[8] = { 0 }, fr[8] = { 0 }, m[8] = { 0 };
-	static char buffer[32] = { 0 };
+	static char fa[8] = { 0 }, fp[8] = { 0 }, fr[8] = { 0 };
+	static char buffer[24] = { 0 };
 	
 	sprintf(fa, "A%d$ ", *f1);
 	sprintf(fp, "P%d$ ", *f2);
 	sprintf(fr, "D%d$", *ratio);
-	sprintf(m, "m%d", MemoryFree());
 	
 	strcat(buffer, fa);
 	strcat(buffer, fp);
 	strcat(buffer, fr);
-	strcat(buffer, m);
 	
 	TxString(buffer);
 	TxString("\r\n");
@@ -414,7 +399,6 @@ void Initialization()
 	DDRD = 0b00001100;
 	PORTD = 0b11110011;
 
-	SetDefaultSettings();
 	LoadSettings();
 
 	Kalman(0, true);
@@ -437,8 +421,7 @@ short GetRatio(short *p_f1, short *p_f2)
 void SetDirection(short *p_difference, bool isReset)
 {
 	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
-	static unsigned short overtimeCount = 0, moveLackCount = 0;
-	static short lastDifference = 0;
+	static unsigned short overtimeCount = 0, moveLackCount = 0, lastDifference = 0;
 	
 	if (isReset)
 	{
@@ -449,17 +432,18 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (stepsInterval)	 // after motor moving step, interval before new step
+	if (stepsInterval)	 
 	{
 		stepsInterval--;
 		return;
 	}
 	
-	if (fabs(*p_difference) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(*p_difference) <= Setpoint)   
 	{
 		if (motorState == Locked) return;
 		if (overtimeCount > 0) overtimeCount = 0;
 		if (moveLackCount > 0) moveLackCount = 0;
+		
 		PulseOff;
 		motorState = Locked;
 		stepCount = 0;
@@ -467,11 +451,11 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (stepCount)	 // while stepCount > 0 motor is moving
+	if (stepCount)	 
 	{
 		stepCount--;
 		
-		if (!stepCount)	   // if stepCount reached 0 motor stopped
+		if (!stepCount)	   
 		{
 			PulseOff;
 			stepsInterval = PulsesInterval;
@@ -480,7 +464,9 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (motorState != Locked) overtimeCount++;
+	if (CurrentError == ERROR_A || CurrentError == ERROR_B || CurrentError == ERROR_C) return;
+	
+	//if (motorState != Locked) overtimeCount++;
 	
 	if (overtimeCount >= ERROR_OVERTIME_MOVING)
 	{
@@ -493,31 +479,39 @@ void SetDirection(short *p_difference, bool isReset)
 	
 	if (*p_difference >= HysteresisUp || *p_difference <= HysteresisDown)
 	{
-		if (motorState == Locked) lastDifference = *p_difference;
+		if (motorState == Locked) lastDifference = abs(*p_difference);
 		else
-		{		 
-			if (abs(lastDifference - *p_difference) < 4) moveLackCount++;
-			if (moveLackCount >= MoveLackLimit)
+		{
+			if (abs(lastDifference - abs(*p_difference)) < 2) moveLackCount++;
+			else 
 			{
-				DisplayMode = Error;
-				CurrentError = ERROR_MOTOR;
 				moveLackCount = 0;
-				FaultOn;
-				return;
+				lastDifference = abs(*p_difference);
 			}
 		}
-		
-		if (*p_difference >= HysteresisUp)
-		{
-			OCR2B = Right;
-			motorState = Right;
-		}
-		else 
-		{
-			OCR2B = Left;
-			motorState = Left;
-		}
-		
+	}
+	
+	if (moveLackCount >= MoveLackLimit)
+	{
+		DisplayMode = Error;
+		CurrentError = ERROR_MOTOR;
+		moveLackCount = 0;
+		FaultOn;
+		return;
+	}
+	
+	if (*p_difference >= HysteresisUp)
+	{
+		OCR2B = Right;
+		motorState = Right;
+		stepCount = PulseDuration;
+		PulseOn;
+	}
+	
+	if (*p_difference <= HysteresisDown)
+	{
+		OCR2B = Left;
+		motorState = Left;
 		stepCount = PulseDuration;
 		PulseOn;
 	}
@@ -661,12 +655,12 @@ void InstantValuesCountrol(short *p_a, short *p_b, short *p_d)
 {
 	static unsigned short errorCount = 0;
 	
-	if ((*p_a < MeasuresLimit || *p_b < MeasuresLimit) && MeasuresLimit)
+	if ((*p_a < 10 || *p_b < 10) && MeasuresLimit)
 	{
 		errorCount++;
-		if (*p_a < MeasuresLimit) CurrentError = ERROR_A;
-		if (*p_b < MeasuresLimit) CurrentError = ERROR_B;
-		if (*p_a < MeasuresLimit && *p_b < MeasuresLimit) CurrentError = ERROR_C;
+		if (*p_a < 10) CurrentError = ERROR_A;
+		if (*p_b < 10) CurrentError = ERROR_B;
+		if (*p_a < 10 && *p_b < 10) CurrentError = ERROR_C;
 		if (errorCount >= MeasuresLimit)
 		{
 			FaultOn;
@@ -676,7 +670,11 @@ void InstantValuesCountrol(short *p_a, short *p_b, short *p_d)
 		return;	
 	}
 	
-	if (errorCount) errorCount = 0;
+	if (errorCount) 
+	{
+		errorCount = 0;
+		CurrentError = Off;
+	}
 }
 
 void CommonControl()
@@ -824,14 +822,18 @@ bool Stop()
 	Timer1(false);
 	SetDirection(0, true);	// reset function counters
 	Kalman(0, true);
-	if (!DisplayTimeoutCount && DisplayMode != Error) DisplayMode = Off;
+	if (DisplayMode != Error) 
+	{
+		DisplayMode = Off;
+		DisplayTimeoutCount = 0;
+	}
 	return false;
 }
 
 int main(void)
 {
 	unsigned short startDelayCount = 0;
-	short a = 0, b = 0, r = 0, d = 0;	// a channel, b channel, ratio, difference
+	short a = 0, b = 0, r = 0, d = 0;	
 
 	Initialization();
 
