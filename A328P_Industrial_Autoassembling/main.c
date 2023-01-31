@@ -5,19 +5,19 @@
  * Author : Abramov IV
  */ 
 
-#define Check(REG,BIT) (REG & (1<<BIT))	    // check bit
-#define Inv(REG,BIT)   (REG ^= (1<<BIT))	// invert bit
-#define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
-#define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
+#define Check(REG,BIT) (REG & (1<<BIT))	   
+#define Inv(REG,BIT)   (REG ^= (1<<BIT))	
+#define High(REG,BIT)  (REG |= (1<<BIT))	
+#define Low(REG,BIT)   (REG &= ~(1<<BIT))	
 
-#define Running		(!Check(PINB, PINB0))  // spindle run input 
+#define Running		(!Check(PINB, PINB0))  
 
-#define Led			Check(PORTB, PORTB1)	// operating led, period = 2 s during winding, if stop off
+#define Led			Check(PORTB, PORTB1)	
 #define LedOn		High(PORTB, PORTB1)
 #define LedOff		Low(PORTB, PORTB1)
 #define LedInv		Inv(PORTB, PORTB1)
 
-#define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
+#define Fault		Check(PORTB, PORTB2)	
 #define FaultOn		High(PORTB, PORTB2)
 #define FaultOff	Low(PORTB, PORTB2)
 
@@ -28,16 +28,16 @@
 #define DotOn		High(PORTD, PORTD2)
 #define DotOff		Low(PORTD, PORTD2)
 
-#define PulsePin	Check(PORTD, PORTD3)	// PWM pin
+#define PulsePin	Check(PORTD, PORTD3)	
 
-#define BtnPlus		Check(PIND, PIND6)     // T1 speed pulses input
-#define BtnMinus	Check(PIND, PIND7)     // T1 speed pulses input
+#define BtnPlus		Check(PIND, PIND6)     
+#define BtnMinus	Check(PIND, PIND7)     
 
-#define Pulse		Check(TCCR2A, COM2B1)  // Fast PWM output 2 of timer 2
+#define Pulse		Check(TCCR2A, COM2B1)  
 #define PulseOn		High(TCCR2A, COM2B1)
 #define PulseOff	Low(TCCR2A, COM2B1)
 
-#define Off				  0				   // hardware features modes
+#define Off				  0				  
 #define On				  1
 #define Init			  2
 #define Setting			  3
@@ -69,6 +69,7 @@
 #define MeasuresLimitPointer	32
 #define MoveLackLimitPointer	34
 #define OvertimeLimitPointer	36
+
 #define MemoryGetterPointer		90
 #define VarsGetterPointer		92
 #define DefaultSetterPointer	99
@@ -95,34 +96,34 @@ short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, Hyst
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
 					 
-short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 22, 0, 1, 5, 10, 10, 45, 10, 0, 10, 5, 10 };
+short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 15, 0, 1, 5, 10, 10, 45, 10, 0, 10, 5, 90 };
 					 
 short ChangableValue = 0;
 
 short Overfeed = 0;
-unsigned short Setpoint = 0;       // 1
-unsigned short HysteresisUp = 0;   // 4
-short HysteresisDown = 0;		   // -4
-unsigned short PulseDuration = 0;  // 2
-unsigned short PulsesInterval = 0; // 4
-unsigned short StartDelay = 0;     // 30
-float FactorA = 0;				   // 1
-float FactorB = 0;				   // 1
-unsigned short DividerA = 0;	   // 1
-unsigned short DividerB = 0;	   // 1
-unsigned short FactorMeasure = 0;  // 5
-unsigned short FactorEstimate = 0; // 5
-float FactorSpeed = 0;             // 0.05
-unsigned short DisplayTimeout = 0; // 60
-unsigned short IsTransmit = 0;	   // 0
-unsigned short MeasuresLimit = 0;  // 5
-unsigned short MoveLackLimit = 0;  // 5
-unsigned short OvertimeLimit = 0;  // 5
+unsigned short Setpoint = 0;       
+unsigned short HysteresisUp = 0;   
+short HysteresisDown = 0;		  
+unsigned short PulseDuration = 0;  
+unsigned short PulsesInterval = 0; 
+unsigned short StartDelay = 0;     
+float FactorA = 0;				   
+float FactorB = 0;				   
+unsigned short DividerA = 0;	  
+unsigned short DividerB = 0;	  
+unsigned short FactorMeasure = 0; 
+unsigned short FactorEstimate = 0;
+float FactorSpeed = 0;             
+unsigned short DisplayTimeout = 0; 
+unsigned short IsTransmit = 0;	   
+unsigned short MeasuresLimit = 0;  
+unsigned short MoveLackLimit = 0;  
+unsigned short OvertimeLimit = 0;  
 
-unsigned short Timer0_OverflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
-unsigned short Timer1_OverflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
-unsigned short Timer2_OverflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
-bool HandleAfterSecond = false;			  // flag to handle data, every second
+unsigned short Timer0_OverflowCount = 0;  
+unsigned short Timer1_OverflowCount = 0;  
+unsigned short Timer2_OverflowCount = 0;  
+bool HandleAfterSecond = false;			  
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;					 
 
@@ -148,26 +149,26 @@ void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);	 // external source clock
-		High(TIMSK0, TOIE0);							 // ISR enabled
+		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);	 
+		High(TIMSK0, TOIE0);							
 		TCNT0 = 0;
 		return;
 	}
 	
 	Low(TIMSK0, TOIE0);
-	TCCR0B = 0x00;										  // stop count
+	TCCR0B = 0x00;										  
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	Timer0_OverflowCount++;	  // increase ISR counter
+	Timer0_OverflowCount++;	  
 }
 
 void Timer1(bool enable)
 {
 	if (enable)
 	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock
+		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   
 		High(TIMSK1, TOIE1);
 		TCNT1 = 0;
 		return;
@@ -184,33 +185,33 @@ ISR(TIMER1_OVF_vect)
 
 void Timer2(bool enable)
 {
-	TCNT2 = 0; 	   // reset count register
+	TCNT2 = 0; 	   
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
-		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
+		TCCR2A = (1 << WGM21)|(1 << WGM20);				
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	
+		High(TIMSK2, TOIE2);							
 		return;
 	}
 	
-	TCCR2B = 0x00;										// stop count
-	Low(TIMSK2, TOIE2);									// overflow interrup disabled
+	TCCR2B = 0x00;										
+	Low(TIMSK2, TOIE2);									
 }
 
 ISR(TIMER2_OVF_vect)
 {
-	Timer2_OverflowCount++;					 // increase overflow variable
+	Timer2_OverflowCount++;					 
 	HandleAfter8ms = true;
 	
 	if (Timer2_OverflowCount % 25 == 0) HandleAfter200ms = true;
 	
-	if (Timer2_OverflowCount >= 125)		 // 8*125 = 1000 ms
+	if (Timer2_OverflowCount >= 125)		 
 	{
-		HandleAfterSecond = true;			 // set flag to handle data
-		Timer2_OverflowCount = 0;			 // reset overflow counter
+		HandleAfterSecond = true;			 
+		Timer2_OverflowCount = 0;			 
 	}
-	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
+
 	TCNT2 = 131;
 }
 
@@ -323,10 +324,10 @@ void UploadVariables()
 	sprintf(value, "%d$\r\n", StartDelay);
 	TxString(value);
 
-	sprintf(value, "%.2f$\r\n", FactorA);
+	sprintf(value, "%.3f$\r\n", FactorA);
 	TxString(value);
 
-	sprintf(value, "%.2f$\r\n", FactorB);
+	sprintf(value, "%.3f$\r\n", FactorB);
 	TxString(value);
 	
 	sprintf(value, "%d$\r\n", DividerA);
@@ -351,6 +352,9 @@ void UploadVariables()
 	TxString(value);
 	
 	sprintf(value, "%d$\r\n", MeasuresLimit);
+	TxString(value);
+	
+	sprintf(value, "%d$\r\n", MoveLackLimit);
 	TxString(value);
 	
 	sprintf(value, "%d$\r\n", OvertimeLimit);
@@ -390,7 +394,7 @@ void LoadSettings()
 
 void Initialization()
 {
-	DDRB = 0b00000110;					// ports init
+	DDRB = 0b00000110;					
 	PORTB = 0b00111001;
 	
 	DDRC = 0b00111111;
@@ -402,10 +406,10 @@ void Initialization()
 	LoadSettings();
 
 	Kalman(0, true);
-	Timer2(true);	// timer 2 switch on
+	Timer2(true);	
 	USART(Init);
 	USART(On);
-	sei();			// enable global interrupts
+	sei();			
 	
 	wdt_enable(WDTO_2S);
 }
@@ -441,8 +445,8 @@ void SetDirection(short *p_difference, bool isReset)
 	if (fabs(*p_difference) <= Setpoint)   
 	{
 		if (motorState == Locked) return;
-		if (overtimeCount > 0) overtimeCount = 0;
-		if (moveLackCount > 0) moveLackCount = 0;
+		if (overtimeCount) overtimeCount = 0;
+		if (moveLackCount) moveLackCount = 0;
 		
 		PulseOff;
 		motorState = Locked;
@@ -465,17 +469,6 @@ void SetDirection(short *p_difference, bool isReset)
 	}
 	
 	if (CurrentError == ERROR_A || CurrentError == ERROR_B || CurrentError == ERROR_C) return;
-	
-	//if (motorState != Locked) overtimeCount++;
-	
-	if (overtimeCount >= ERROR_OVERTIME_MOVING)
-	{
-		DisplayMode = Error;
-		CurrentError = ERROR_OVERTIME_MOVING;
-		overtimeCount = 0;
-		FaultOn;
-		return;
-	}
 	
 	if (*p_difference >= HysteresisUp || *p_difference <= HysteresisDown)
 	{
@@ -504,6 +497,7 @@ void SetDirection(short *p_difference, bool isReset)
 	{
 		OCR2B = Right;
 		motorState = Right;
+		overtimeCount++;
 		stepCount = PulseDuration;
 		PulseOn;
 	}
@@ -512,8 +506,17 @@ void SetDirection(short *p_difference, bool isReset)
 	{
 		OCR2B = Left;
 		motorState = Left;
+		overtimeCount++;
 		stepCount = PulseDuration;
 		PulseOn;
+	}
+	
+	if (overtimeCount >= OvertimeLimit)
+	{
+		DisplayMode = Error;
+		CurrentError = ERROR_OVERTIME_MOVING;
+		overtimeCount = 0;
+		FaultOn;
 	}
 }
 
@@ -820,7 +823,7 @@ bool Stop()
 	FaultOff;
 	Timer0(false);
 	Timer1(false);
-	SetDirection(0, true);	// reset function counters
+	SetDirection(0, true);	
 	Kalman(0, true);
 	if (DisplayMode != Error) 
 	{
@@ -907,12 +910,12 @@ int main(void)
 			
 			if (!Running && IsRun) IsRun = Stop();
 			
-			if (IsRun)						 // handle data after startDelay
+			if (IsRun)						 
 			{
-				LedInv;						 // operating LED	inversion
+				LedInv;					
 
-				a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        // calculation f1	(aramid)
-				b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	 // calculation f2	(polyamide)
+				a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        
+				b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	
 				r = GetRatio(&a, &b);
 				d = Kalman(Overfeed - r, false);
 				
@@ -921,15 +924,15 @@ int main(void)
 				if (!startDelayCount)
 				{
 					InstantValuesCountrol(&a, &b, &d);
-					SetDirection(&d, false);		// calculation average ratio
+					SetDirection(&d, false);		
 				}
 				
-				TCNT0 = 0;					  // reset count registers after receiving values
+				TCNT0 = 0;					 
 				TCNT1 = 0;
 				Timer0_OverflowCount = 0;
 			}
 			
-			if (startDelayCount) startDelayCount--;  // start delay counter
+			if (startDelayCount) startDelayCount--;  
 
 			if (DisplayTimeoutCount)
 			{
