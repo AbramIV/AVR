@@ -96,7 +96,7 @@ short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, Hyst
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
 					 
-short Defaults[] = { 0, 2, 4, -4, 2, 4, 30, 15, 0, 1, 5, 10, 10, 45, 10, 0, 10, 5, 90 };
+short Defaults[] = { 0, 1, 4, -4, 2, 5, 40, 0, 0, 1, 1, 10, 10, 45, 0, 0, 10, 10, 90 };
 					 
 short ChangableValue = 0;
 
@@ -258,7 +258,6 @@ void Transmit(short *f1, short *f2, short *ratio)
 	strcat(buffer, fr);
 	
 	TxString(buffer);
-	TxString("\r\n");
 	
 	buffer[0] = '\0';
 }
@@ -418,8 +417,8 @@ short GetRatio(short *p_f1, short *p_f2)
 {
 	if (!*p_f1 && !*p_f2) return 0;
 	
-	if (*p_f1 <= *p_f2) return (1-(float)*p_f1/(*p_f2 == 0 ? 1 : *p_f2))*1000;
-	else return (1-(float)*p_f2/(*p_f1))*-1000;
+	if (*p_f1 <= *p_f2) return (1-(float)*p_f1/(*p_f2 == 0 ? 1 : *p_f2))*-1000;
+	else return (1-(float)*p_f2/(*p_f1))*1000;
 }
 
 void SetDirection(short *p_difference, bool isReset)
@@ -442,7 +441,7 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (fabs(*p_difference) <= Setpoint)   
+	if (abs(*p_difference) <= Setpoint)   
 	{
 		if (motorState == Locked) return;
 		if (overtimeCount) overtimeCount = 0;
@@ -493,6 +492,15 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
+	if (overtimeCount >= OvertimeLimit)
+	{
+		DisplayMode = Error;
+		CurrentError = ERROR_OVERTIME_MOVING;
+		overtimeCount = 0;
+		FaultOn;
+		return;
+	}
+	
 	if (*p_difference >= HysteresisUp)
 	{
 		OCR2B = Right;
@@ -500,6 +508,7 @@ void SetDirection(short *p_difference, bool isReset)
 		overtimeCount++;
 		stepCount = PulseDuration;
 		PulseOn;
+		return;
 	}
 	
 	if (*p_difference <= HysteresisDown)
@@ -509,14 +518,6 @@ void SetDirection(short *p_difference, bool isReset)
 		overtimeCount++;
 		stepCount = PulseDuration;
 		PulseOn;
-	}
-	
-	if (overtimeCount >= OvertimeLimit)
-	{
-		DisplayMode = Error;
-		CurrentError = ERROR_OVERTIME_MOVING;
-		overtimeCount = 0;
-		FaultOn;
 	}
 }
 
