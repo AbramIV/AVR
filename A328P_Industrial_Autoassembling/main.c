@@ -96,13 +96,13 @@ short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, Hyst
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
 					 
-short Defaults[] = { 0, 1, 4, -4, 2, 5, 40, 0, 0, 1, 1, 10, 10, 45, 0, 0, 10, 10, 90 };
+short Defaults[] = { 0, 1, 4, -4, 1, 5, 40, 0, 0, 1, 1, 10, 10, 45, 0, 0, 10, 10, 90 };
 					 
 short ChangableValue = 0;
 
 short Overfeed = 0;
-unsigned short Setpoint = 0;       
-unsigned short HysteresisUp = 0;   
+short Setpoint = 0;       
+short HysteresisUp = 0;   
 short HysteresisDown = 0;		  
 unsigned short PulseDuration = 0;  
 unsigned short PulsesInterval = 0; 
@@ -244,20 +244,20 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(short *f1, short *f2, short *ratio)
+void Transmit(short *p_a, short *p_b, short *p_d)
 {
-	static char fa[8] = { 0 }, fp[8] = { 0 }, fr[8] = { 0 };
-	static char buffer[24] = { 0 };
+	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 };
+	static char buffer[64] = { 0 };
 	
-	sprintf(fa, "A%d$ ", *f1);
-	sprintf(fp, "P%d$ ", *f2);
-	sprintf(fr, "D%d$", *ratio);
+	sprintf(a, "A%d$ ", *p_a);
+	sprintf(b, "P%d$ ", *p_b);
+	sprintf(d, "D%d\r\n", *p_d);
 	
-	strcat(buffer, fa);
-	strcat(buffer, fp);
-	strcat(buffer, fr);
+	strcat(buffer, a);
+	strcat(buffer, b);
+	strcat(buffer, d);
 	
-	TxString(buffer);
+	TxString(d);
 	
 	buffer[0] = '\0';
 }
@@ -401,7 +401,7 @@ void Initialization()
 	
 	DDRD = 0b00001100;
 	PORTD = 0b11110011;
-
+	
 	LoadSettings();
 
 	Kalman(0, true);
@@ -413,15 +413,15 @@ void Initialization()
 	wdt_enable(WDTO_2S);
 }
 
-short GetRatio(short *p_f1, short *p_f2)
+short GetRatio(short *p_a, short *p_b)
 {
-	if (!*p_f1 && !*p_f2) return 0;
+	if (!*p_a && !*p_b) return 0;
 	
-	if (*p_f1 <= *p_f2) return (1-(float)*p_f1/(*p_f2 == 0 ? 1 : *p_f2))*-1000;
-	else return (1-(float)*p_f2/(*p_f1))*1000;
+	if (*p_a <= *p_b) return (1-(float)*p_a/(*p_b == 0 ? 1 : *p_b))*-1000;
+	else return (1-(float)*p_b/(*p_a))*1000;
 }
 
-void SetDirection(short *p_difference, bool isReset)
+void SetDirection(short *p_d, bool isReset)
 {
 	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
 	static unsigned short overtimeCount = 0, moveLackCount = 0, lastDifference = 0;
@@ -441,7 +441,7 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (abs(*p_difference) <= Setpoint)   
+	if (abs(*p_d) <= Setpoint)   
 	{
 		if (motorState == Locked) return;
 		if (overtimeCount) overtimeCount = 0;
@@ -469,16 +469,16 @@ void SetDirection(short *p_difference, bool isReset)
 	
 	if (CurrentError == ERROR_A || CurrentError == ERROR_B || CurrentError == ERROR_C) return;
 	
-	if (*p_difference >= HysteresisUp || *p_difference <= HysteresisDown)
+	if (*p_d >= HysteresisUp || *p_d <= HysteresisDown)
 	{
-		if (motorState == Locked) lastDifference = abs(*p_difference);
+		if (motorState == Locked) lastDifference = abs(*p_d);
 		else
 		{
-			if (abs(lastDifference - abs(*p_difference)) < 2) moveLackCount++;
+			if (abs(lastDifference - abs(*p_d)) < 2) moveLackCount++;
 			else 
 			{
 				moveLackCount = 0;
-				lastDifference = abs(*p_difference);
+				lastDifference = abs(*p_d);
 			}
 		}
 	}
@@ -492,16 +492,7 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (overtimeCount >= OvertimeLimit)
-	{
-		DisplayMode = Error;
-		CurrentError = ERROR_OVERTIME_MOVING;
-		overtimeCount = 0;
-		FaultOn;
-		return;
-	}
-	
-	if (*p_difference >= HysteresisUp)
+	if (*p_d >= HysteresisUp)
 	{
 		OCR2B = Right;
 		motorState = Right;
@@ -511,13 +502,22 @@ void SetDirection(short *p_difference, bool isReset)
 		return;
 	}
 	
-	if (*p_difference <= HysteresisDown)
+	if (*p_d <= HysteresisDown)
 	{
 		OCR2B = Left;
 		motorState = Left;
 		overtimeCount++;
 		stepCount = PulseDuration;
 		PulseOn;
+	}
+	
+	if (overtimeCount >= OvertimeLimit)
+	{
+		DisplayMode = Error;
+		CurrentError = ERROR_OVERTIME_MOVING;
+		overtimeCount = 0;
+		FaultOn;
+		return;
 	}
 }
 
