@@ -251,7 +251,7 @@ void Transmit(short *p_a, short *p_b, short *p_d)
 	
 	sprintf(a, "A%d$ ", *p_a);
 	sprintf(b, "P%d$ ", *p_b);
-	sprintf(d, "D%d\r\n", *p_d);
+	sprintf(d, "D%d", *p_d);
 	
 	strcat(buffer, a);
 	strcat(buffer, b);
@@ -370,7 +370,7 @@ void SetDefaultSettings()
 
 void LoadSettings()
 {
-	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+	Overfeed = (eeprom_read_word((uint16_t*)OverfeedPointer))*-1;
 	Setpoint = eeprom_read_word((uint16_t*)SetpointPointer);
 	HysteresisUp = eeprom_read_word((uint16_t*)HysteresisUpPointer);
 	HysteresisDown = eeprom_read_word((uint16_t*)HysteresisDownPointer);
@@ -469,7 +469,7 @@ void SetDirection(short *p_d, bool isReset)
 	
 	if (CurrentError == ERROR_A || CurrentError == ERROR_B || CurrentError == ERROR_C) return;
 	
-	if (*p_d >= HysteresisUp || *p_d <= HysteresisDown)
+	if ((*p_d >= HysteresisUp || *p_d <= HysteresisDown) && MoveLackLimit)
 	{
 		if (motorState == Locked) lastDifference = abs(*p_d);
 		else
@@ -492,23 +492,26 @@ void SetDirection(short *p_d, bool isReset)
 		return;
 	}
 	
-	if (*p_d >= HysteresisUp)
+	if (PulseDuration)
 	{
-		OCR2B = Right;
-		motorState = Right;
-		overtimeCount++;
-		stepCount = PulseDuration;
-		PulseOn;
-		return;
-	}
-	
-	if (*p_d <= HysteresisDown)
-	{
-		OCR2B = Left;
-		motorState = Left;
-		overtimeCount++;
-		stepCount = PulseDuration;
-		PulseOn;
+		if (*p_d >= HysteresisUp || (*p_d > 0 && motorState != Locked))
+		{
+			OCR2B = Right;
+			motorState = Right;
+			if (OvertimeLimit) overtimeCount++;
+			stepCount = PulseDuration;
+			PulseOn;
+			return;
+		}
+		
+		if (*p_d <= HysteresisDown || (*p_d < 0 && motorState != Locked))
+		{
+			OCR2B = Left;
+			motorState = Left;
+			if (OvertimeLimit) overtimeCount++;
+			stepCount = PulseDuration;
+			PulseOn;
+		}
 	}
 	
 	if (overtimeCount >= OvertimeLimit)
@@ -694,22 +697,24 @@ void CommonControl()
 	
 	if (PlusPushed)
 	{
-		if (OCR2B != Right || !Pulse)
+		if (OCR2B != Left || !Pulse)
 		{
-			OCR2B = Right;
+			OCR2B = Left;
 			PulseOn;
-		}
+		}	
+		
 		ManualControl = true;
 		PlusPushed = false;
 	}
 	
 	if (MinusPushed)
 	{
-		if (OCR2B != Left || !Pulse)
+		if (OCR2B != Right || !Pulse)
 		{
-			OCR2B = Left;
+			OCR2B = Right;
 			PulseOn;
 		}
+		
 		ManualControl = true;
 		MinusPushed = false;
 	}
@@ -836,7 +841,7 @@ bool Stop()
 
 int main(void)
 {
-	unsigned short startDelayCount = 0;
+	unsigned short startDelayCount = 0, measureDelayCount = 0;
 	short a = 0, b = 0, r = 0, d = 0;	
 
 	Initialization();
@@ -906,6 +911,8 @@ int main(void)
 				IsRun = Start();
 				HandleAfterSecond = false;
 				startDelayCount = StartDelay;
+				measureDelayCount = 5;
+				a = 0; b = 0; r = 0; d = 0;
 				continue;
 			}
 			
@@ -915,12 +922,15 @@ int main(void)
 			{
 				LedInv;					
 
-				a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;        
-				b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	
-				r = GetRatio(&a, &b);
-				d = Kalman(Overfeed - r, false);
-				
-				if (IsTransmit) Transmit(&a, &b, &d);
+				if (!measureDelayCount)
+				{
+					a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;
+					b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;
+					r = GetRatio(&a, &b);
+					d = Kalman(Overfeed - r, false);
+					
+					if (IsTransmit) Transmit(&a, &b, &d);
+				}
 				
 				if (!startDelayCount)
 				{
@@ -933,6 +943,7 @@ int main(void)
 				Timer0_OverflowCount = 0;
 			}
 			
+			if (measureDelayCount) measureDelayCount--;
 			if (startDelayCount) startDelayCount--;  
 
 			if (DisplayTimeoutCount)
