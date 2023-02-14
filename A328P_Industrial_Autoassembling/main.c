@@ -247,7 +247,7 @@ void TxString(const char* s)
 void Transmit(short *p_a, short *p_b, short *p_d)
 {
 	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 };
-	static char buffer[64] = { 0 };
+	static char buffer[32] = { 0 };
 	
 	sprintf(a, "A%d$ ", *p_a);
 	sprintf(b, "P%d$ ", *p_b);
@@ -257,7 +257,7 @@ void Transmit(short *p_a, short *p_b, short *p_d)
 	strcat(buffer, b);
 	strcat(buffer, d);
 	
-	TxString(d);
+	TxString(buffer);
 	
 	buffer[0] = '\0';
 }
@@ -370,7 +370,7 @@ void SetDefaultSettings()
 
 void LoadSettings()
 {
-	Overfeed = (eeprom_read_word((uint16_t*)OverfeedPointer))*-1;
+	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
 	Setpoint = eeprom_read_word((uint16_t*)SetpointPointer);
 	HysteresisUp = eeprom_read_word((uint16_t*)HysteresisUpPointer);
 	HysteresisDown = eeprom_read_word((uint16_t*)HysteresisDownPointer);
@@ -417,8 +417,8 @@ short GetRatio(short *p_a, short *p_b)
 {
 	if (!*p_a && !*p_b) return 0;
 	
-	if (*p_a <= *p_b) return (1-(float)*p_a/(*p_b == 0 ? 1 : *p_b))*-1000;
-	else return (1-(float)*p_b/(*p_a))*1000;
+	if (*p_a <= *p_b) return (1-(float)*p_a/(*p_b == 0 ? 1 : *p_b))*1000;
+	else return (1-(float)*p_b/(*p_a))*-1000;
 }
 
 void SetDirection(short *p_d, bool isReset)
@@ -658,7 +658,7 @@ void ModesControl()
 	}
 }
 
-void InstantValuesCountrol(short *p_a, short *p_b, short *p_d)
+void InstantValuesCountrol(short *p_a, short *p_b)
 {
 	static unsigned short errorCount = 0;
 	
@@ -850,7 +850,7 @@ int main(void)
 	{
 		if (HandleAfter8ms)
 		{
-			if (DisplayMode == Current)	 Print(&d);
+			if (DisplayMode == Current)	 Print(&r);
 			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);
 			if (DisplayMode == Setting)	 Print(&ChangableValue);
 			if (DisplayMode == Off && (Check(PORTC, PORTC4) || Check(PORTC, PORTC5))) PORTC &= 0xC0;
@@ -926,15 +926,15 @@ int main(void)
 				{
 					a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;
 					b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;
-					r = GetRatio(&a, &b);
-					d = Kalman(Overfeed - r, false);
+					r = Kalman(GetRatio(&a, &b), false);
+					d = Overfeed - r;
 					
-					if (IsTransmit) Transmit(&a, &b, &d);
+					if (IsTransmit) Transmit(&a, &b, &r);
 				}
 				
 				if (!startDelayCount)
 				{
-					InstantValuesCountrol(&a, &b, &d);
+					InstantValuesCountrol(&a, &b);
 					SetDirection(&d, false);		
 				}
 				
