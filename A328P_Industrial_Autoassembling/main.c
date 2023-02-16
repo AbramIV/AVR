@@ -90,6 +90,10 @@ const unsigned short ERROR_C = 3;
 const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERTIME_MOVING = 5;
 
+const unsigned short MEASURE_DELAY = 10;
+const unsigned short SETTING_EXIT = 5;
+
+
 short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, HysteresisDownPointer, PulseDurationPointer, 
 					 PulsesIntervalPointer, StartDelayPointer, FactorAPointer, FactorBPointer, DividerAPointer, DividerBPointer,
 					 FactorMeasurePointer, FactorEstimatePointer, FactorSpeedPointer, DisplayTimeoutPointer,
@@ -496,8 +500,8 @@ void SetDirection(short *p_d, bool isReset)
 	{
 		if (*p_d >= HysteresisUp || (*p_d > 0 && motorState != Locked))
 		{
-			OCR2B = Right;
-			motorState = Right;
+			OCR2B = Left;
+			motorState = Left;
 			if (OvertimeLimit) overtimeCount++;
 			stepCount = PulseDuration;
 			PulseOn;
@@ -506,8 +510,8 @@ void SetDirection(short *p_d, bool isReset)
 		
 		if (*p_d <= HysteresisDown || (*p_d < 0 && motorState != Locked))
 		{
-			OCR2B = Left;
-			motorState = Left;
+			OCR2B = Right;
+			motorState = Right;
 			if (OvertimeLimit) overtimeCount++;
 			stepCount = PulseDuration;
 			PulseOn;
@@ -889,7 +893,7 @@ int main(void)
 		{
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
 			
-			if (SettingExitCount >= 3 || IsReloadSettings) 
+			if (SettingExitCount >= SETTING_EXIT || IsReloadSettings) 
 			{
 				SettingExitCount = 0;
 				IndexCurrentSetting = 0;
@@ -911,7 +915,7 @@ int main(void)
 				IsRun = Start();
 				HandleAfterSecond = false;
 				startDelayCount = StartDelay;
-				measureDelayCount = 5;
+				measureDelayCount = MEASURE_DELAY;
 				a = 0; b = 0; r = 0; d = 0;
 				continue;
 			}
@@ -941,6 +945,7 @@ int main(void)
 				TCNT0 = 0;					 
 				TCNT1 = 0;
 				Timer0_OverflowCount = 0;
+				Timer1_OverflowCount = 0;
 			}
 			
 			if (measureDelayCount) measureDelayCount--;
