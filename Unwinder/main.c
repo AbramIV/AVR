@@ -10,19 +10,28 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))
 
-#define Led			Check(PORTD, PORTD7)
-#define LedOn		High(PORTD, PORTD7)
-#define LedOff		Low(PORTD, PORTD7)
-#define LedInv		Inv(PORTD, PORTD7)
+#define EchoPin	        Check(PINB, PINB0)
 
-#define EchoPin	    Check(PORTB, PORTB0)
+#define Ultrasonic      Check(PORTB, PORTB1)
+#define UltrasonicOn    High(PORTB, PORTB1)
+#define UltrasonicOff   Low(PORTB, PORTB1)
+#define UltrasonicInv	Inv(PORTB, PORTB1)
+
+#define Triac			Check(PORTB, PORTB2)
+#define TriacOn			High(PORTB, PORTB2)
+#define TriacOff		Low(PORTB, PORTB2)
+#define TriacInv		Inv(PORTB, PORTB2)
+
+#define Led				Check(PORTB, PORTB5)
+#define LedOn			High(PORTB, PORTB5)
+#define LedOff			Low(PORTB, PORTB5)
+#define LedInv			Inv(PORTB, PORTB5)
 
 #define Off		0
 #define On		1
 #define Init	2
 
-#define UltrasonicOn  High(PORTB, PORTB0)
-#define UltrasonicOff Low(PORTB, PORTB0)
+#define WaveDuration	62
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -34,6 +43,15 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
+volatile struct Measures
+{
+	unsigned long int ticks, current, last;
+	unsigned short distance;
+	float period;
+	bool done;
+} Ruler = { 0, 0, 0, 0, 0, false };
+
+unsigned short WaveDurationCount = 0;
 unsigned short Timer0_OverflowCount = 0;
 unsigned short Timer1_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
@@ -41,30 +59,27 @@ bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;
 
-struct Measures
-{
-	unsigned int ticks, current, last;
-	float period;
-	bool done;
-} Ruler = { 0, 0, 0, 0, false };
-
 void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
+		TCNT0 = 251;
+		High(TCCR0B, CS02);
 		High(TIMSK0, TOIE0);
-		TCNT0 = 0;
 		return;
 	}
 	
+	Timer0_OverflowCount = 0;
 	Low(TIMSK0, TOIE0);
+	Low(TCCR0B, CS02);
 	TCCR0B = 0x00;
+	TCNT0 = 0;
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	Timer0_OverflowCount++;
+	if (WaveDurationCount) WaveDurationCount--;
+	TCNT0 = 251;
 }
 
 void Timer1(bool enable)
@@ -133,6 +148,26 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 131;
 }
 
+void ExternalInterrupt(bool enable)
+{
+	if (enable)
+	{
+		High(EICRA, ISC01);
+		High(EIMSK, INT0);
+		return;
+	}
+	
+	Low(EICRA, ISC01);
+	Low(EIMSK, INT0);
+}
+
+ISR(INT0_vect)
+{
+	WaveDurationCount = WaveDuration;
+	Timer0(true);
+	TriacOn;
+}
+
 void USART(unsigned short option)
 {
 	switch (option)
@@ -162,26 +197,28 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float* value)
+void Transmit(float value)
 {
-	static char d[8] = { 0 };
+	static char d[16] = { 0 };
 		
-	sprintf(d, "D%.3f&", *value);
+	sprintf(d, "D%.3f\r\n", value);
 	TxString(d);	
 }
 
 void Initialization()
 {
-	DDRB = 0b00000110;
-	PORTB = 0b00111001;
+	DDRB = 0b00111110;
+	PORTB = 0b00000000;
 	
-	DDRC = 0b00111111;
-	PORTC = 0b11000000;
+	DDRC = 0b00000000;
+	PORTC = 0b11111111;
 	
-	DDRD = 0b00001100;
-	PORTD = 0b11110011;
+	DDRD = 0b00000010;
+	PORTD = 0b11111101;
 	
+	Timer0(true);
 	Timer2(true);
+	ExternalInterrupt(true);
 	USART(Init);
 	USART(On);
 	sei();
@@ -199,17 +236,22 @@ int main(void)
 			{
 				Ruler.current = ((Timer1_OverflowCount * 65536L) + Ruler.ticks) - Ruler.last;
 				Ruler.last = Ruler.ticks;
-				Ruler.period = Ruler.current*0.0000000625;
+				Ruler.period = (float)Ruler.current*0.0000000625;
+				Ruler.distance = (unsigned short)Ruler.period*335;
 				Ruler.done = false;
 			}
 			
 			HandleAfter8ms = false;
 		}
 		
+		if (!WaveDurationCount && Triac)
+		{
+			TriacOff;
+			Timer0(false);
+		}
+		
 		if (HandleAfter200ms)
 		{
-			Transmit(&Ruler.period);
-			
 			UltrasonicOn;
 			_delay_us(12);
 			UltrasonicOff;
@@ -222,7 +264,7 @@ int main(void)
 		{
 			LedInv;
 			
-			TxString("OK");
+			Transmit(Ruler.distance);
 			
 			HandleAfterSecond = false;
 		}
