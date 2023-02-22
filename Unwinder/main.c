@@ -43,21 +43,16 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-volatile struct Measures
-{
-	unsigned long int ticks, current, last;
-	unsigned short distance;
-	float period;
-	bool done;
-} Ruler = { 0, 0, 0, 0, 0, false };
+unsigned int StartTicks = 0;
+unsigned int LastTicks = 0;
+bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
 unsigned short Timer0_OverflowCount = 0;
-unsigned short Timer1_OverflowCount = 0;
+unsigned long int Timer1_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
-bool HandleAfter8ms = false;
 
 void Timer0(bool enable)
 {
@@ -82,18 +77,22 @@ ISR(TIMER0_OVF_vect)
 	TCNT0 = 251;
 }
 
-void Timer1(bool enable)
+void Timer1(unsigned short option)
 {
-	if (enable)
+	switch(option)
 	{
-		TCCR1B = (1 << ICNC1)|(1 << ICES1)|(0 << CS12)|(0 << CS11)|(1 << CS10);
-		TIMSK1 = (1 << TOIE1)|(1 << ICIE1);
-		return;
+		case Init:
+			TCCR1B = (1 << ICNC1)|(1 << ICES1);
+			TIMSK1 = (1 << TOIE1)|(1 << ICIE1);
+			TCNT1 = 0;
+			break;
+		case On:
+			High(TCCR1B, CS10);
+			break;
+		default:
+			Low(TCCR1B, CS10);
+			break;
 	}
-	
-	Low(TCCR1B, CS10);
-	Low(TIMSK1, TOIE1);
-	Low(TIMSK1, ICIE1);
 }
 
 ISR(TIMER1_OVF_vect)
@@ -105,15 +104,15 @@ ISR(TIMER1_CAPT_vect)
 {	
 	if (EchoPin) 
 	{
-		TCNT1 = 0;
+		StartTicks = ICR1;
 		Timer1_OverflowCount = 0;
 		Low(TCCR1B, ICES1);
 		return;
 	}
 	
-	Timer1(false);
-	Ruler.ticks = ICR1;
-	Ruler.done = true;
+	LastTicks = ICR1;
+	Timer1(Off);
+	PulseCaptured = true;
 }
 
 void Timer2(bool enable)
@@ -122,7 +121,6 @@ void Timer2(bool enable)
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);
 		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
 		High(TIMSK2, TOIE2);
 		return;
@@ -135,7 +133,6 @@ void Timer2(bool enable)
 ISR(TIMER2_OVF_vect)
 {
 	Timer2_OverflowCount++;
-	HandleAfter8ms = true;
 	
 	if (Timer2_OverflowCount % 25 == 0) HandleAfter200ms = true;
 	
@@ -197,11 +194,11 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(float value)
+void Transmit(unsigned short *value)
 {
-	static char d[16] = { 0 };
+	static char d[4] = { 0 };
 		
-	sprintf(d, "D%.3f\r\n", value);
+	sprintf(d, "D%d", *value);
 	TxString(d);	
 }
 
@@ -216,32 +213,44 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b11111101;
 	
-	Timer0(true);
+	//Timer0(true);
+	Timer1(Init);
 	Timer2(true);
-	ExternalInterrupt(true);
+	//ExternalInterrupt(true);
 	USART(Init);
 	USART(On);
 	sei();
 }
 
-int main(void)
+unsigned short Average(unsigned short value)
 {
+	static unsigned short index = 0;
+	static float array[8] = { 0 };
+	static float result = 0;
+	
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % 8;
+	
+	return result/8;
+}
+
+int main(void)
+{	
+	unsigned short distance = 0;
+	
 	Initialization();
 	
     while (1) 
     {
-		if (HandleAfter8ms)
+		if (PulseCaptured)
 		{
-			if (Ruler.done)
-			{
-				Ruler.current = ((Timer1_OverflowCount * 65536L) + Ruler.ticks) - Ruler.last;
-				Ruler.last = Ruler.ticks;
-				Ruler.period = (float)Ruler.current*0.0000000625;
-				Ruler.distance = (unsigned short)Ruler.period*335;
-				Ruler.done = false;
-			}
-			
-			HandleAfter8ms = false;
+			distance = Average(((Timer1_OverflowCount*65536L+LastTicks) - StartTicks) * 0.010625);
+			StartTicks = 0;
+			LastTicks = 0;
+			Timer1_OverflowCount = 0;
+			TCNT1 = 0;
+			PulseCaptured = false;
 		}
 		
 		if (!WaveDurationCount && Triac)
@@ -252,10 +261,11 @@ int main(void)
 		
 		if (HandleAfter200ms)
 		{
+			Timer1(On);
+
 			UltrasonicOn;
-			_delay_us(12);
+			_delay_us(10);
 			UltrasonicOff;
-			Timer1(true);
 			
 			HandleAfter200ms = false;
 		}
@@ -264,7 +274,7 @@ int main(void)
 		{
 			LedInv;
 			
-			Transmit(Ruler.distance);
+			Transmit(&distance);
 			
 			HandleAfterSecond = false;
 		}
