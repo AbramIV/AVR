@@ -31,7 +31,8 @@
 #define On		1
 #define Init	2
 
-#define ArraySize 16
+#define DistanceArraySize  16
+#define FrequencyArraySize 8
 
 #define WaveDuration	25
 
@@ -49,7 +50,9 @@
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
+unsigned short ZeroCrossedCount = 0;
 unsigned short WaveDurationCount = 0;
+
 unsigned short Timer0_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -165,6 +168,7 @@ void ExternalInterrupt(bool enable)
 
 ISR(INT0_vect)
 {
+	ZeroCrossedCount++;
 	WaveDurationCount = WaveDuration;
 	Timer0(true);
 	TriacOn;
@@ -276,10 +280,10 @@ void Initialization()
 	lcd_clrscr();
 	lcd_home();
 	
-	//Timer0(true);
+	Timer0(true);
 	Timer1(Init);
 	Timer2(true);
-	//ExternalInterrupt(true);
+	ExternalInterrupt(true);
 	USART(Init);
 	USART(On);
 	sei();
@@ -288,14 +292,27 @@ void Initialization()
 unsigned short AverageDistance(unsigned short value)
 {
 	static unsigned short index = 0;
-	static float array[ArraySize] = { 0 };
+	static float array[DistanceArraySize] = { 0 };
 	static float result = 0;
 	
 	result += value - array[index];
 	array[index] = value;
-	index = (index + 1) % ArraySize;
+	index = (index + 1) % DistanceArraySize;
 	
-	return result/ArraySize;
+	return result/DistanceArraySize;
+}
+
+float AverageFrequency(unsigned short *value)
+{
+	static unsigned short index = 0;
+	static float array[FrequencyArraySize] = { 0 };
+	static float result = 0;
+	
+	result += *value - array[index];
+	array[index] = *value;
+	index = (index + 1) % FrequencyArraySize;
+	
+	return result/FrequencyArraySize;
 }
 
 int main(void)
@@ -334,8 +351,12 @@ int main(void)
 		{
 			LedInv;
 			
+			frequency = AverageFrequency(&ZeroCrossedCount)/2;
+			
 			DisplayPrint(&distance, &frequency);
 			Transmit(&distance);
+			
+			ZeroCrossedCount = 0;
 			
 			HandleAfterSecond = false;
 		}
