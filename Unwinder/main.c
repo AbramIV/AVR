@@ -46,13 +46,11 @@
 #include <avr/wdt.h>
 #include "lcd/lcdpcf8574/lcdpcf8574.h"
 
-unsigned long int StartTicks = 0;
-unsigned long int LastTicks = 0;
+unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
 unsigned short Timer0_OverflowCount = 0;
-unsigned long int Timer1_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
@@ -87,7 +85,6 @@ void Timer1(unsigned short option)
 		case Init:
 			High(TCCR1B, ICNC1);
 			TIMSK1 = (1 << TOIE1)|(1 << ICIE1);
-			TCNT1 = 0;
 			break;
 		case On:
 			High(TCCR1B, ICES1);
@@ -99,26 +96,26 @@ void Timer1(unsigned short option)
 			Low(TCCR1B, CS10);
 			Low(TIMSK1, TOIE1);
 			Low(TIMSK1, ICIE1);
+			TCNT1 = 0;
 			break;
 	}
 }
 
 ISR(TIMER1_OVF_vect)
 {
-	Timer1_OverflowCount++;
+	Ticks += 65536;
 }
 
 ISR(TIMER1_CAPT_vect)
 {	
 	if (EchoPin) 
 	{
-		Timer1_OverflowCount = 0;
-		StartTicks = ICR1;
+		Ticks = 0;
 		Low(TCCR1B, ICES1);
 		return;
 	}
-	
-	LastTicks = ICR1;
+
+	Ticks += ICR1;
 	Timer1(Off);
 	PulseCaptured = true;
 }
@@ -288,7 +285,7 @@ void Initialization()
 	sei();
 }
 
-unsigned short Average(unsigned short value)
+unsigned short AverageDistance(unsigned short value)
 {
 	static unsigned short index = 0;
 	static float array[ArraySize] = { 0 };
@@ -304,7 +301,6 @@ unsigned short Average(unsigned short value)
 int main(void)
 {	
 	unsigned short distance = 0;
-	unsigned long int ticks = 0;
 	float frequency = 0;
 	
 	Initialization();
@@ -313,12 +309,7 @@ int main(void)
     {
 		if (PulseCaptured)
 		{
-			ticks = (Timer1_OverflowCount*65536L+LastTicks) - StartTicks;
-			distance = Average((unsigned short)(ticks * 0.01046875));
-			StartTicks = 0;
-			LastTicks = 0;
-			Timer1_OverflowCount = 0;
-			TCNT1 = 0;
+			distance = AverageDistance((unsigned short)(Ticks * 0.01046875));
 			PulseCaptured = false;
 		}
 		
