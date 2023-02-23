@@ -31,7 +31,9 @@
 #define On		1
 #define Init	2
 
-#define WaveDuration	62
+#define ArraySize 16
+
+#define WaveDuration	25
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -42,9 +44,10 @@
 #include <string.h>
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
+#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
-unsigned int StartTicks = 0;
-unsigned int LastTicks = 0;
+unsigned long int StartTicks = 0;
+unsigned long int LastTicks = 0;
 bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
@@ -82,15 +85,20 @@ void Timer1(unsigned short option)
 	switch(option)
 	{
 		case Init:
-			TCCR1B = (1 << ICNC1)|(1 << ICES1);
+			High(TCCR1B, ICNC1);
 			TIMSK1 = (1 << TOIE1)|(1 << ICIE1);
 			TCNT1 = 0;
 			break;
 		case On:
+			High(TCCR1B, ICES1);
 			High(TCCR1B, CS10);
+			High(TIMSK1, TOIE1);
+			High(TIMSK1, ICIE1);
 			break;
 		default:
 			Low(TCCR1B, CS10);
+			Low(TIMSK1, TOIE1);
+			Low(TIMSK1, ICIE1);
 			break;
 	}
 }
@@ -104,8 +112,8 @@ ISR(TIMER1_CAPT_vect)
 {	
 	if (EchoPin) 
 	{
-		StartTicks = ICR1;
 		Timer1_OverflowCount = 0;
+		StartTicks = ICR1;
 		Low(TCCR1B, ICES1);
 		return;
 	}
@@ -198,8 +206,61 @@ void Transmit(unsigned short *value)
 {
 	static char d[4] = { 0 };
 		
-	sprintf(d, "D%d", *value);
+	sprintf(d, "D%d$", *value);
 	TxString(d);	
+}
+
+void EraseUnits(int x, int y, int offset, unsigned short count)
+{
+	char eraser = 32;
+
+	if (count<100000)
+	{
+		lcd_gotoxy(x+offset+5,y);
+		lcd_putc(eraser);
+	}
+
+	if (count<10000)
+	{
+		lcd_gotoxy(x+offset+4,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<1000)
+	{
+		lcd_gotoxy(x+offset+3,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100)
+	{
+		lcd_gotoxy(x+offset+2,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10)
+	{
+		lcd_gotoxy(x+offset+1,y);
+		lcd_putc(eraser);
+	}
+	
+	
+	lcd_gotoxy(x, y);
+}
+
+void DisplayPrint(unsigned short *distance, float *frequency)
+{
+	static char d[8] = { 0 }, f[8] = { 0 };
+	
+	EraseUnits(0, 0, 3, *distance);
+	sprintf(d, "%d mm", *distance);
+	lcd_gotoxy(0, 0);
+	lcd_puts(d);
+	
+	EraseUnits(0, 1, 3, *frequency);
+	sprintf(f, "%.1f Hz", *frequency);
+	lcd_gotoxy(0, 1);
+	lcd_puts(f);
 }
 
 void Initialization()
@@ -213,6 +274,11 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b11111101;
 	
+	lcd_init(LCD_DISP_ON);
+	lcd_led(false);
+	lcd_clrscr();
+	lcd_home();
+	
 	//Timer0(true);
 	Timer1(Init);
 	Timer2(true);
@@ -225,19 +291,21 @@ void Initialization()
 unsigned short Average(unsigned short value)
 {
 	static unsigned short index = 0;
-	static float array[8] = { 0 };
+	static float array[ArraySize] = { 0 };
 	static float result = 0;
 	
 	result += value - array[index];
 	array[index] = value;
-	index = (index + 1) % 8;
+	index = (index + 1) % ArraySize;
 	
-	return result/8;
+	return result/ArraySize;
 }
 
 int main(void)
 {	
 	unsigned short distance = 0;
+	unsigned long int ticks = 0;
+	float frequency = 0;
 	
 	Initialization();
 	
@@ -245,7 +313,8 @@ int main(void)
     {
 		if (PulseCaptured)
 		{
-			distance = Average(((Timer1_OverflowCount*65536L+LastTicks) - StartTicks) * 0.010625);
+			ticks = (Timer1_OverflowCount*65536L+LastTicks) - StartTicks;
+			distance = Average((unsigned short)(ticks * 0.01046875));
 			StartTicks = 0;
 			LastTicks = 0;
 			Timer1_OverflowCount = 0;
@@ -262,9 +331,9 @@ int main(void)
 		if (HandleAfter200ms)
 		{
 			Timer1(On);
-
+			
 			UltrasonicOn;
-			_delay_us(10);
+			_delay_us(11);
 			UltrasonicOff;
 			
 			HandleAfter200ms = false;
@@ -274,6 +343,7 @@ int main(void)
 		{
 			LedInv;
 			
+			DisplayPrint(&distance, &frequency);
 			Transmit(&distance);
 			
 			HandleAfterSecond = false;
