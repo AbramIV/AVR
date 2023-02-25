@@ -29,17 +29,30 @@
     <eraseonlaunchrule>0</eraseonlaunchrule>
     <EraseKey />
     <AsfFrameworkConfig>
-      <framework-data xmlns="">
+      <framework-data>
         <options />
         <configurations />
         <files />
         <documentation help="" />
         <offline-documentation help="" />
         <dependencies>
-          <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.51.0" />
+          <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.42.0" />
         </dependencies>
       </framework-data>
     </AsfFrameworkConfig>
+    <avrtool>com.atmel.avrdbg.tool.simulator</avrtool>
+    <avrtoolserialnumber />
+    <avrdeviceexpectedsignature>0x1E950F</avrdeviceexpectedsignature>
+    <com_atmel_avrdbg_tool_simulator>
+      <ToolOptions xmlns="">
+        <InterfaceProperties>
+        </InterfaceProperties>
+      </ToolOptions>
+      <ToolType xmlns="">com.atmel.avrdbg.tool.simulator</ToolType>
+      <ToolNumber xmlns="">
+      </ToolNumber>
+      <ToolName xmlns="">Simulator</ToolName>
+    </com_atmel_avrdbg_tool_simulator>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -122,33 +135,9 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="lcd\i2chw\i2cmaster.h">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="lcd\i2chw\twimaster.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.h">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="lcd\pcf8574\pcf8574.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="lcd\pcf8574\pcf8574.h">
-      <SubType>compile</SubType>
-    </Compile>
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="lcd" />
-    <Folder Include="lcd\i2chw" />
-    <Folder Include="lcd\lcdpcf8574" />
-    <Folder Include="lcd\pcf8574" />
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\Compiler.targets" />
 </Project>

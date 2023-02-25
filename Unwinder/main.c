@@ -34,8 +34,6 @@
 #define DistanceArraySize  16
 #define FrequencyArraySize 8
 
-#define WaveDuration	25
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -45,15 +43,13 @@
 #include <string.h>
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
-#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
-unsigned short ZeroCrossedCount = 0;
 unsigned short WaveDurationCount = 0;
+unsigned short WaveDuration = 0;
 
-unsigned short Timer0_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
@@ -62,22 +58,24 @@ void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCNT0 = 251;
-		High(TCCR0B, CS02);
 		High(TIMSK0, TOIE0);
+		High(TCCR0B, CS02);
 		return;
 	}
 	
-	Timer0_OverflowCount = 0;
-	Low(TIMSK0, TOIE0);
 	Low(TCCR0B, CS02);
-	TCCR0B = 0x00;
-	TCNT0 = 0;
+	Low(TIMSK0, TOIE0);
+	TCNT0 = 251;
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	if (WaveDurationCount) WaveDurationCount--;
+	if (WaveDurationCount > 0) WaveDurationCount--;
+	else
+	{
+		TriacOff;
+		Timer0(false);
+	}
 	TCNT0 = 251;
 }
 
@@ -157,21 +155,22 @@ void ExternalInterrupt(bool enable)
 {
 	if (enable)
 	{
+		High(EICRA, ISC00);
 		High(EICRA, ISC01);
 		High(EIMSK, INT0);
 		return;
 	}
 	
+	Low(EICRA, ISC00);
 	Low(EICRA, ISC01);
 	Low(EIMSK, INT0);
 }
 
 ISR(INT0_vect)
 {
-	ZeroCrossedCount++;
 	WaveDurationCount = WaveDuration;
-	Timer0(true);
 	TriacOn;
+	Timer0(true);
 }
 
 void USART(unsigned short option)
@@ -205,63 +204,10 @@ void TxString(const char* s)
 
 void Transmit(unsigned short *value)
 {
-	static char d[4] = { 0 };
-		
-	sprintf(d, "D%d$", *value);
-	TxString(d);	
-}
-
-void EraseUnits(int x, int y, int offset, unsigned short count)
-{
-	char eraser = 32;
-
-	if (count<100000)
-	{
-		lcd_gotoxy(x+offset+5,y);
-		lcd_putc(eraser);
-	}
-
-	if (count<10000)
-	{
-		lcd_gotoxy(x+offset+4,y);
-		lcd_putc(eraser);
-	}
+	static char d[8] = { 0 };
 	
-	if (count<1000)
-	{
-		lcd_gotoxy(x+offset+3,y);
-		lcd_putc(eraser);
-	}
-	
-	if (count<100)
-	{
-		lcd_gotoxy(x+offset+2,y);
-		lcd_putc(eraser);
-	}
-	
-	if (count<10)
-	{
-		lcd_gotoxy(x+offset+1,y);
-		lcd_putc(eraser);
-	}
-	
-	
-	lcd_gotoxy(x, y);
-}
-
-void DisplayPrint(unsigned short *distance, float *frequency)
-{
-	static char d[8] = { 0 }, f[8] = { 0 };
-	
-	EraseUnits(0, 0, 3, *distance);
-	sprintf(d, "%d mm", *distance);
-	lcd_gotoxy(0, 0);
-	lcd_puts(d);
-	
-	EraseUnits(0, 1, 3, *frequency);
-	sprintf(f, "%.1f Hz", *frequency);
-	lcd_gotoxy(0, 1);
-	lcd_puts(f);
+	sprintf(d, "S%d$", *value);
+	TxString(d);
 }
 
 void Initialization()
@@ -275,12 +221,6 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b11111101;
 	
-	lcd_init(LCD_DISP_ON);
-	lcd_led(false);
-	lcd_clrscr();
-	lcd_home();
-	
-	Timer0(true);
 	Timer1(Init);
 	Timer2(true);
 	ExternalInterrupt(true);
@@ -315,13 +255,36 @@ float AverageFrequency(unsigned short *value)
 	return result/FrequencyArraySize;
 }
 
+void SetWaveDuration()
+{
+	static bool direction = false;
+	
+	if (direction)
+	{
+		if (WaveDuration < 125) WaveDuration++;
+		else 
+		{
+			direction = !direction; 
+			WaveDuration--;
+		}
+	}
+	else
+	{
+		if (WaveDuration > 0) WaveDuration--;
+		else 
+		{
+			direction = !direction;
+			WaveDuration++;
+		}
+	}
+}
+
 int main(void)
 {	
 	unsigned short distance = 0;
-	float frequency = 0;
 	
 	Initialization();
-	
+
     while (1) 
     {
 		if (PulseCaptured)
@@ -330,14 +293,8 @@ int main(void)
 			PulseCaptured = false;
 		}
 		
-		if (!WaveDurationCount && Triac)
-		{
-			TriacOff;
-			Timer0(false);
-		}
-		
 		if (HandleAfter200ms)
-		{
+		{	
 			Timer1(On);
 			
 			UltrasonicOn;
@@ -350,13 +307,10 @@ int main(void)
 		if (HandleAfterSecond)
 		{
 			LedInv;
+
+			SetWaveDuration();
 			
-			frequency = AverageFrequency(&ZeroCrossedCount)/2;
-			
-			DisplayPrint(&distance, &frequency);
 			Transmit(&distance);
-			
-			ZeroCrossedCount = 0;
 			
 			HandleAfterSecond = false;
 		}
