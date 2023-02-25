@@ -781,8 +781,6 @@ void SettingControl()
 			break;
 		case DividerAPointer:
 		case DividerBPointer:
-		case MoveLackLimitPointer:
-		case OvertimeLimitPointer:
 			if (PlusPushed && ChangableValue < 99) ChangableValue++;
 			if (MinusPushed && ChangableValue > 1) ChangableValue--;	
 			break;
@@ -797,6 +795,8 @@ void SettingControl()
 		case FactorEstimatePointer:
 		case DisplayTimeoutPointer:
 		case MeasuresLimitPointer:
+		case MoveLackLimitPointer:
+		case OvertimeLimitPointer:
 			if (PlusPushed && ChangableValue < 99) ChangableValue++;
 			if (MinusPushed && ChangableValue > 0) ChangableValue--;
 			break;
