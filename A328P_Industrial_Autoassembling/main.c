@@ -5,39 +5,39 @@
  * Author : Abramov IV
  */ 
 
-#define Check(REG,BIT) (REG & (1<<BIT))	   
-#define Inv(REG,BIT)   (REG ^= (1<<BIT))	
-#define High(REG,BIT)  (REG |= (1<<BIT))	
-#define Low(REG,BIT)   (REG &= ~(1<<BIT))	
+#define Check(REG,BIT) (REG & (1<<BIT))	   	  // check bit
+#define Inv(REG,BIT)   (REG ^= (1<<BIT))	  // invert bit
+#define High(REG,BIT)  (REG |= (1<<BIT))	  // set bit
+#define Low(REG,BIT)   (REG &= ~(1<<BIT))	  // clear bit
 
-#define Running		(!Check(PINB, PINB0))  
+#define Running		(!Check(PINB, PINB0))  	  // spindle on/off input
 
-#define Led			Check(PORTB, PORTB1)	
+#define Led			Check(PORTB, PORTB1)	  // operational led
 #define LedOn		High(PORTB, PORTB1)
 #define LedOff		Low(PORTB, PORTB1)
 #define LedInv		Inv(PORTB, PORTB1)
 
-#define Fault		Check(PORTB, PORTB2)	
+#define Fault		Check(PORTB, PORTB2)	  // fault output
 #define FaultOn		High(PORTB, PORTB2)
 #define FaultOff	Low(PORTB, PORTB2)
 
-#define Units		Check(PORTC, PORTC4)
+#define Units		Check(PORTC, PORTC4)	  // select dipslay digit (MSD/LSD)
 #define Dozens		Check(PORTC, PORTC5)
 
-#define Dot			Check(PORTD, PORTD2)
+#define Dot			Check(PORTD, PORTD2)	  // display dot pin
 #define DotOn		High(PORTD, PORTD2)
 #define DotOff		Low(PORTD, PORTD2)
 
-#define PulsePin	Check(PORTD, PORTD3)	
+#define PulsePin	Check(PORTD, PORTD3)	  // motor control output pin
 
-#define BtnPlus		Check(PIND, PIND6)     
+#define BtnPlus		Check(PIND, PIND6)     	  // buttons control input pins
 #define BtnMinus	Check(PIND, PIND7)     
 
-#define Pulse		Check(TCCR2A, COM2B1)  
+#define Pulse		Check(TCCR2A, COM2B1)  	  // on/off pwm on PulsePin
 #define PulseOn		High(TCCR2A, COM2B1)
 #define PulseOff	Low(TCCR2A, COM2B1)
 
-#define Off				  0				  
+#define Off				  0				  	  // internal parameters enumeration
 #define On				  1
 #define Init			  2
 #define Setting			  3
@@ -46,11 +46,11 @@
 #define Common			  6
 #define Settings		  7
 
-#define Locked			  100
+#define Locked			  100				  // motor state and values to load in pwm compare register
 #define Right	 		  135
 #define Left			  250				
 
-#define OverfeedPointer			0
+#define OverfeedPointer			0			  // Pointers of each parameters in EEPROM
 #define SetpointPointer			2
 #define HysteresisUpPointer		4
 #define HysteresisDownPointer   6
@@ -70,7 +70,7 @@
 #define MoveLackLimitPointer	34
 #define OvertimeLimitPointer	36
 
-#define MemoryGetterPointer		90
+#define MemoryGetterPointer		90				// display params to Tx EEPROM/RAM params and set defualts
 #define VarsGetterPointer		92
 #define DefaultSetterPointer	99
 
@@ -84,26 +84,27 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-const unsigned short ERROR_A = 1;
+const unsigned short ERROR_A = 1;					// fault codes
 const unsigned short ERROR_B = 2;
 const unsigned short ERROR_C = 3;
 const unsigned short ERROR_MOTOR = 4;
 const unsigned short ERROR_OVERTIME_MOVING = 5;
 
-const unsigned short MEASURE_DELAY = 10;
-const unsigned short SETTING_EXIT = 5;
+const unsigned short MEASURE_DELAY = 10;	// const delay before start to avoid measurements because PA has extremely tension  
+const unsigned short SETTING_EXIT = 5;		// delay before exit settings if wasn't any actions
 
-
+// array of pointer to convenient navigate
 short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, HysteresisDownPointer, PulseDurationPointer, 
 					 PulsesIntervalPointer, StartDelayPointer, FactorAPointer, FactorBPointer, DividerAPointer, DividerBPointer,
 					 FactorMeasurePointer, FactorEstimatePointer, FactorSpeedPointer, DisplayTimeoutPointer,
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
-					 
+// default values					 
 short Defaults[] = { 0, 1, 4, -4, 1, 5, 40, 0, 0, 1, 1, 10, 10, 45, 0, 0, 10, 10, 90 };
 					 
-short ChangableValue = 0;
+short ChangableValue = 0;	// current changeable value
 
+// params to store recalculated EEPROM params
 short Overfeed = 0;
 short Setpoint = 0;       
 short HysteresisUp = 0;   
@@ -131,9 +132,9 @@ bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;					 
 
-unsigned short InterfaceMode = Common;	 
-unsigned short DisplayMode = Off;
-unsigned short IndexCurrentSetting = 0;
+unsigned short InterfaceMode = Common;	 // current interface mode
+unsigned short DisplayMode = Off;		 // current display mode
+unsigned short IndexCurrentSetting = 0;	 
 unsigned short DisplayTimeoutCount = 0;
 unsigned short SettingExitCount = 0;
 bool Blink = false;
@@ -473,7 +474,7 @@ void SetDirection(short *p_d, bool isReset)
 	
 	if (CurrentError == ERROR_A || CurrentError == ERROR_B || CurrentError == ERROR_C) return;
 	
-	if ((*p_d >= HysteresisUp || *p_d <= HysteresisDown) && MoveLackLimit)
+	if (MoveLackLimit && (*p_d >= HysteresisUp || *p_d <= HysteresisDown))
 	{
 		if (motorState == Locked) lastDifference = abs(*p_d);
 		else
@@ -487,7 +488,7 @@ void SetDirection(short *p_d, bool isReset)
 		}
 	}
 	
-	if (moveLackCount >= MoveLackLimit)
+	if (moveLackCount > MoveLackLimit)
 	{
 		DisplayMode = Error;
 		CurrentError = ERROR_MOTOR;
@@ -518,7 +519,7 @@ void SetDirection(short *p_d, bool isReset)
 		}
 	}
 	
-	if (overtimeCount >= OvertimeLimit)
+	if (overtimeCount > OvertimeLimit)
 	{
 		DisplayMode = Error;
 		CurrentError = ERROR_OVERTIME_MOVING;
@@ -666,18 +667,20 @@ void InstantValuesCountrol(short *p_a, short *p_b)
 {
 	static unsigned short errorCount = 0;
 	
-	if ((*p_a < 10 || *p_b < 10) && MeasuresLimit)
+	if (MeasuresLimit && (*p_a < 10 || *p_b < 10))
 	{
 		errorCount++;
 		if (*p_a < 10) CurrentError = ERROR_A;
 		if (*p_b < 10) CurrentError = ERROR_B;
 		if (*p_a < 10 && *p_b < 10) CurrentError = ERROR_C;
-		if (errorCount >= MeasuresLimit)
+		
+		if (errorCount > MeasuresLimit)
 		{
 			FaultOn;
 			DisplayMode = Error;
 			errorCount = 0;
 		}
+		
 		return;	
 	}
 	
@@ -854,18 +857,18 @@ int main(void)
 	{
 		if (HandleAfter8ms)
 		{
-			if (DisplayMode == Current)	 Print(&r);
-			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);
-			if (DisplayMode == Setting)	 Print(&ChangableValue);
-			if (DisplayMode == Off && (Check(PORTC, PORTC4) || Check(PORTC, PORTC5))) PORTC &= 0xC0;
+			if (DisplayMode == Current)	 Print(&r);	  // print ratio
+			if (DisplayMode == Settings) Print(&Pointers[IndexCurrentSetting]);	// print pointer of setting
+			if (DisplayMode == Setting)	 Print(&ChangableValue);	  // print changeable setting value
+			if (DisplayMode == Off && (Check(PORTC, PORTC4) || Check(PORTC, PORTC5))) PORTC &= 0xC0;   // display off
 			
 			HandleAfter8ms = false;
 		}
 		
 		if (HandleAfter200ms)
 		{	
-			 ControlButtons();
-			 ModesControl();
+			 ControlButtons();	   // control buttons push
+			 ModesControl();	   // control current mode
 			 
 			 if (InterfaceMode == Setting)
 			 {
@@ -874,13 +877,13 @@ int main(void)
 				 Blink = !Blink;
 			 }
 			 
-			 if (InterfaceMode == Common)   CommonControl();
+			 if (InterfaceMode == Common)   CommonControl();	  // functions for handle each mode
 			 if (InterfaceMode == Settings) SettingsControl();
 			 if (InterfaceMode == Setting)  SettingControl();
 			 
-			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;
+			 if (SettingExitCount > 0 && BtnMinus) SettingExitCount = 0;  // setting exit counter
 			 
-			 if (ManualControl && BtnPlus && BtnMinus)
+			 if (ManualControl && BtnPlus && BtnMinus)	 // turn off manual control of motor
 			 {
 				 PulseOff;
 				 ManualControl = false;
@@ -893,7 +896,7 @@ int main(void)
 		{
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
 			
-			if (SettingExitCount >= SETTING_EXIT || IsReloadSettings) 
+			if (SettingExitCount >= SETTING_EXIT || IsReloadSettings)  // reload settings after changing 
 			{
 				SettingExitCount = 0;
 				IndexCurrentSetting = 0;
@@ -910,7 +913,7 @@ int main(void)
 				LoadSettings();
 			}
 			
-			if (Running && !IsRun) 
+			if (Running && !IsRun) 		   // start init
 			{
 				IsRun = Start();
 				HandleAfterSecond = false;
@@ -920,7 +923,7 @@ int main(void)
 				continue;
 			}
 			
-			if (!Running && IsRun) IsRun = Stop();
+			if (!Running && IsRun) IsRun = Stop();	// stop init
 			
 			if (IsRun)						 
 			{
@@ -928,27 +931,27 @@ int main(void)
 
 				if (!measureDelayCount)
 				{
-					a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;
-					b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;
-					r = Kalman(GetRatio(&a, &b), false);
-					d = Overfeed - r;
+					a = (short)((TCNT0 + Timer0_OverflowCount*256)/DividerA)*FactorA;		   // channel a frequency 
+					b = (short)((TCNT1 + Timer1_OverflowCount*65535L)/DividerB)*FactorB;	   // channel b frequency 
+					r = Kalman(GetRatio(&a, &b), false);									   // ratio
+					d = Overfeed - r;														   // difference
 					
-					if (IsTransmit) Transmit(&a, &b, &r);
+					if (IsTransmit) Transmit(&a, &b, &r);									   
 				}
 				
 				if (!startDelayCount)
 				{
-					InstantValuesCountrol(&a, &b);
-					SetDirection(&d, false);		
+					InstantValuesCountrol(&a, &b);	// control correct measures
+					SetDirection(&d, false);		// control moving directions, protections
 				}
 				
-				TCNT0 = 0;					 
+				TCNT0 = 0;					 	    // counters clearing
 				TCNT1 = 0;
 				Timer0_OverflowCount = 0;
 				Timer1_OverflowCount = 0;
 			}
 			
-			if (measureDelayCount) measureDelayCount--;
+			if (measureDelayCount) measureDelayCount--;	   // start delay counters
 			if (startDelayCount) startDelayCount--;  
 
 			if (DisplayTimeoutCount)
