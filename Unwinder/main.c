@@ -48,7 +48,7 @@ unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
-unsigned short WaveDuration = 0;
+unsigned short WaveDuration = 112;
 
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -73,7 +73,7 @@ ISR(TIMER0_OVF_vect)
 	if (WaveDurationCount > 0) WaveDurationCount--;
 	else
 	{
-		TriacOff;
+		TriacOn;
 		Timer0(false);
 	}
 	TCNT0 = 251;
@@ -168,8 +168,8 @@ void ExternalInterrupt(bool enable)
 
 ISR(INT0_vect)
 {
+	TriacOff;
 	WaveDurationCount = WaveDuration;
-	TriacOn;
 	Timer0(true);
 }
 
@@ -221,11 +221,11 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b11111101;
 	
-	Timer1(Init);
+	//Timer1(Init);
 	Timer2(true);
 	ExternalInterrupt(true);
-	USART(Init);
-	USART(On);
+	//USART(Init);
+	//USART(On);
 	sei();
 }
 
@@ -308,9 +308,9 @@ int main(void)
 		{
 			LedInv;
 
-			SetWaveDuration();
+			//SetWaveDuration();
 			
-			Transmit(&distance);
+			//Transmit(&distance);
 			
 			HandleAfterSecond = false;
 		}
