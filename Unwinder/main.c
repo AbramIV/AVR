@@ -48,7 +48,7 @@ unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
-unsigned short WaveDuration = 112;
+unsigned short WaveDuration = 110;
 
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -261,7 +261,7 @@ void SetWaveDuration()
 	
 	if (direction)
 	{
-		if (WaveDuration < 125) WaveDuration++;
+		if (WaveDuration < 110) WaveDuration++;
 		else 
 		{
 			direction = !direction; 
@@ -270,7 +270,7 @@ void SetWaveDuration()
 	}
 	else
 	{
-		if (WaveDuration > 0) WaveDuration--;
+		if (WaveDuration > 85) WaveDuration--;
 		else 
 		{
 			direction = !direction;
@@ -308,7 +308,7 @@ int main(void)
 		{
 			LedInv;
 
-			//SetWaveDuration();
+			SetWaveDuration();
 			
 			//Transmit(&distance);
 			

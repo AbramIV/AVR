@@ -100,7 +100,7 @@ short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, Hyst
 					 IsTransmitPointer,	MeasuresLimitPointer, MoveLackLimitPointer, OvertimeLimitPointer,
 					 MemoryGetterPointer, VarsGetterPointer, DefaultSetterPointer };
 // default values					 
-short Defaults[] = { 0, 1, 4, -4, 1, 5, 40, 0, 0, 1, 1, 10, 10, 45, 0, 0, 10, 10, 90 };
+short Defaults[] = { 0, 0, 4, -4, 1, 30, 60, 0, 0, 1, 1, 20, 20, 50, 0, 0, 10, 10, 99 };
 					 
 short ChangableValue = 0;	// current changeable value
 
