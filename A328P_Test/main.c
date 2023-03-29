@@ -441,10 +441,20 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char frequency[20], tension[20];
-	//sprintf(frequency, "F%.2f$", DDS.frequency);
-	sprintf(tension, "Tn%.2f", Convert.tension);
-	TxString(frequency);
+	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 };
+	static char buffer[32] = { 0 };
+	
+	sprintf(a, "A%d$ ", 379);
+	sprintf(b, "P%d$ ", 384);
+	sprintf(d, "D%d", 2);
+	
+	strcat(buffer, a);
+	strcat(buffer, b);
+	strcat(buffer, d);
+	
+	TxString(buffer);
+	
+	buffer[0] = '\0';
 }
 
 void Receive()
@@ -662,17 +672,19 @@ int main(void)
 	//Timer1(Counter);
 	Timer2(On);
 	//Comparator();
-	//USART(Init);
-	//USART(On);
+	USART(Init);
+	USART(On);
 	sei();
 	
-	for (int i = 0; i < 1024; i++) eeprom_update_word((uint16_t*)i, 0);
+	//for (int i = 0; i < 1024; i++) eeprom_update_word((uint16_t*)i, 0);
 	
 	while(1)
 	{	
 		if (handleAfterSecond)
 		{
 			LedInv;
+
+			Transmit();
 
 			handleAfterSecond = false;
 		}

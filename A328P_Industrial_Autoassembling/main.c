@@ -256,7 +256,7 @@ void Transmit(short *p_a, short *p_b, short *p_d)
 	
 	sprintf(a, "A%d$ ", *p_a);
 	sprintf(b, "P%d$ ", *p_b);
-	sprintf(d, "D%d", *p_d);
+	sprintf(d, "D%d$", *p_d);
 	
 	strcat(buffer, a);
 	strcat(buffer, b);

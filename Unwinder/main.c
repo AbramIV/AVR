@@ -27,6 +27,10 @@
 #define LedOff			Low(PORTB, PORTB5)
 #define LedInv			Inv(PORTB, PORTB5)
 
+#define EncoderB    (PIND  & (1<<3))
+#define EncoderL    (~PIND & (1<<4))
+#define EncoderR    (~PIND & (1<<5))
+
 #define Off		0
 #define On		1
 #define Init	2
@@ -48,7 +52,7 @@ unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
 unsigned short WaveDurationCount = 0;
-unsigned short WaveDuration = 110;
+unsigned short WaveDuration = 85;
 
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -202,12 +206,50 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit(unsigned short *value)
+void Transmit()
 {
-	static char d[8] = { 0 };
+	static char d[2] = { 0 };
 	
-	sprintf(d, "S%d$", *value);
+	sprintf(d, "%d", WaveDuration);
 	TxString(d);
+}
+
+void EncoderControl(void)
+{
+	static unsigned short right = 0, left = 0, button = 0;
+	
+	if (EncoderR) right = 0;
+	{
+		if (!EncoderR) right++;
+		{
+			if (right == 1 && EncoderL)
+			{
+				if (WaveDuration < 124) WaveDuration++;
+				return;
+			}
+		}
+	}
+	
+	if (EncoderL) left = 0;
+	{
+		if (!EncoderL) left++;
+		{
+			if (left == 1 && EncoderR)
+			{
+				if (WaveDuration > 1) WaveDuration--;
+				return;
+			}
+		}
+	}
+	
+	if (!EncoderB) button++;
+	{
+		if (button == 1)
+		{
+			
+			button = 0;
+		}
+	}
 }
 
 void Initialization()
@@ -255,30 +297,6 @@ float AverageFrequency(unsigned short *value)
 	return result/FrequencyArraySize;
 }
 
-void SetWaveDuration()
-{
-	static bool direction = false;
-	
-	if (direction)
-	{
-		if (WaveDuration < 110) WaveDuration++;
-		else 
-		{
-			direction = !direction; 
-			WaveDuration--;
-		}
-	}
-	else
-	{
-		if (WaveDuration > 85) WaveDuration--;
-		else 
-		{
-			direction = !direction;
-			WaveDuration++;
-		}
-	}
-}
-
 int main(void)
 {	
 	unsigned short distance = 0;
@@ -307,12 +325,12 @@ int main(void)
 		if (HandleAfterSecond)
 		{
 			LedInv;
-
-			SetWaveDuration();
 			
-			//Transmit(&distance);
+			//Transmit();
 			
 			HandleAfterSecond = false;
 		}
+		
+		EncoderControl();
     }
 }
