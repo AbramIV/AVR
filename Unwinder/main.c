@@ -48,7 +48,7 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-const float MAX = 2.4;
+const float MAX = 2.38;	// = (-374/2?50) * (cos(2?50*(0.005)) - 1);
 
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
@@ -301,7 +301,7 @@ float AverageFrequency(unsigned short *value)
 
 void GetDuration()
 {
-	S = (-374/2?50) * (cos(2?50*(0.005)) - 1)
+	
 }
 
 int main(void)
