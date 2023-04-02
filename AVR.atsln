@@ -40,6 +40,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507
 		esp8266.txt = esp8266.txt
 		LCD keypad shield.txt = LCD keypad shield.txt
 		MC Studio settings.c = MC Studio settings.c
+		Sin segment area.txt = Sin segment area.txt
 		Temp.txt = Temp.txt
 	EndProjectSection
 EndProject

@@ -42,19 +42,16 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
-#include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-const float MAX = 2.38;	// = (-374/2?50) * (cos(2?50*(0.005)) - 1);
+const double MAX = 2.38;	// = (-374/2pi50) * (cos(2pi50*(0.01)) - 1) = 1.1905*(cos(314.1593*(T))-1);
 
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
-unsigned short WaveDurationCount = 0;
-unsigned short WaveDuration = 85;
+unsigned short PulseDuration = 101;
+unsigned short Torque = 0;
 
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -65,24 +62,19 @@ void Timer0(bool enable)
 	if (enable)
 	{
 		High(TIMSK0, TOIE0);
-		High(TCCR0B, CS02);
+		TCCR0B = (1 << CS02)|(1 << CS00);
 		return;
 	}
 	
-	Low(TCCR0B, CS02);
+	TCCR0B &= ~((1 << CS02)|(1 << CS00));
 	Low(TIMSK0, TOIE0);
-	TCNT0 = 251;
+	TCNT0 = PulseDuration;
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	if (WaveDurationCount > 0) WaveDurationCount--;
-	else
-	{
-		TriacOn;
-		Timer0(false);
-	}
-	TCNT0 = 251;
+	TriacOn;
+	Timer0(false);
 }
 
 void Timer1(unsigned short option)
@@ -175,7 +167,6 @@ void ExternalInterrupt(bool enable)
 ISR(INT0_vect)
 {
 	TriacOff;
-	WaveDurationCount = WaveDuration;
 	Timer0(true);
 }
 
@@ -212,46 +203,8 @@ void Transmit()
 {
 	static char d[2] = { 0 };
 	
-	sprintf(d, "%d", WaveDuration);
+	sprintf(d, "%d", PulseDuration);
 	TxString(d);
-}
-
-void EncoderControl(void)
-{
-	static unsigned short right = 0, left = 0, button = 0;
-	
-	if (EncoderR) right = 0;
-	{
-		if (!EncoderR) right++;
-		{
-			if (right == 1 && EncoderL)
-			{
-				if (WaveDuration < 124) WaveDuration++;
-				return;
-			}
-		}
-	}
-	
-	if (EncoderL) left = 0;
-	{
-		if (!EncoderL) left++;
-		{
-			if (left == 1 && EncoderR)
-			{
-				if (WaveDuration > 1) WaveDuration--;
-				return;
-			}
-		}
-	}
-	
-	if (!EncoderB) button++;
-	{
-		if (button == 1)
-		{
-			
-			button = 0;
-		}
-	}
 }
 
 void Initialization()
@@ -265,11 +218,13 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b11111101;
 	
+	TCNT0 = PulseDuration;
+	
 	//Timer1(Init);
 	Timer2(true);
 	ExternalInterrupt(true);
-	//USART(Init);
-	//USART(On);
+	USART(Init);
+	USART(On);
 	sei();
 }
 
@@ -299,9 +254,55 @@ float AverageFrequency(unsigned short *value)
 	return result/FrequencyArraySize;
 }
 
-void GetDuration()
+unsigned short GetDuration(double power)
 {
+	return ((acos((MAX*power - 1.1905) / -1.1905) / 314.1592)/9.92)*154.f;
+}
+
+void EncoderControl()
+{
+	static unsigned short right = 0, left = 0, button = 0;
 	
+	if (EncoderR) right = 0;
+	{
+		if (!EncoderR) right++;
+		{
+			if (right == 1 && EncoderL)
+			{
+				if (Torque < 100) 
+				{
+					Torque++;
+					PulseDuration = GetDuration(Torque/100.f);
+				}
+				return;
+			}
+		}
+	}
+	
+	if (EncoderL) left = 0;
+	{
+		if (!EncoderL) left++;
+		{
+			if (left == 1 && EncoderR)
+			{
+				if (Torque > 0) 
+				{
+					Torque--;
+					PulseDuration = GetDuration(Torque/100.f);
+				}
+				return;
+			}
+		}
+	}
+	
+	if (!EncoderB) button++;
+	{
+		if (button == 1)
+		{
+			
+			button = 0;
+		}
+	}
 }
 
 int main(void)
@@ -333,7 +334,7 @@ int main(void)
 		{
 			LedInv;
 			
-			//Transmit();
+			Transmit();
 			
 			HandleAfterSecond = false;
 		}
