@@ -50,8 +50,8 @@ const double MAX = 2.38;	// = (-374/2pi50) * (cos(2pi50*(0.01)) - 1) = 1.1905*(c
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
 
-unsigned short PulseDuration = 101;
-unsigned short Torque = 0;
+unsigned short PulseDuration = 0;
+unsigned short Torque = 50;
 
 unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
@@ -256,7 +256,7 @@ float AverageFrequency(unsigned short *value)
 
 unsigned short GetDuration(double power)
 {
-	return ((acos((MAX*power - 1.1905) / -1.1905) / 314.1592)/9.92)*154.f;
+	return ((acos((MAX*power-1.1905)/-1.1905)/314.1592)/0.00992)*154.f+101.f;
 }
 
 void EncoderControl()
@@ -310,6 +310,8 @@ int main(void)
 	unsigned short distance = 0;
 	
 	Initialization();
+	
+	PulseDuration = GetDuration(Torque/100.f);
 
     while (1) 
     {
