@@ -44,8 +44,9 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <avr/wdt.h>
+#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
-const double MAX = 2.38;	// = (-374/2pi50) * (cos(2pi50*(0.01)) - 1) = 1.1905*(cos(314.1593*(T))-1);
+const double MAX = 1.978;	// = (-311/2pi50) * (cos(2pi50*(0.01)) - 1) = 1.1905*(cos(314.1593*(T))-1);
 
 unsigned long int Ticks = 0;
 bool PulseCaptured = false;
@@ -204,28 +205,9 @@ void Transmit()
 	static char d[2] = { 0 };
 	
 	sprintf(d, "%d", PulseDuration);
+	lcd_gotoxy(0, 0);
+	lcd_puts(d);
 	TxString(d);
-}
-
-void Initialization()
-{
-	DDRB = 0b00111110;
-	PORTB = 0b00000000;
-	
-	DDRC = 0b00000000;
-	PORTC = 0b11111111;
-	
-	DDRD = 0b00000010;
-	PORTD = 0b11111101;
-	
-	TCNT0 = PulseDuration;
-	
-	//Timer1(Init);
-	Timer2(true);
-	ExternalInterrupt(true);
-	USART(Init);
-	USART(On);
-	sei();
 }
 
 unsigned short AverageDistance(unsigned short value)
@@ -256,8 +238,8 @@ float AverageFrequency(unsigned short *value)
 
 unsigned short GetDuration(double power)
 {
-	return ((acos((MAX*power-1.1905)/-1.1905)/314.1592)/0.00992)*154.f+101.f;
-}
+	return acos((MAX*power-0.989)/-0.989)*49.416+101.f;
+}										
 
 void EncoderControl()
 {
@@ -305,13 +287,41 @@ void EncoderControl()
 	}
 }
 
+void Initialization()
+{
+	DDRB = 0b00111110;
+	PORTB = 0b00000000;
+	
+	DDRC = 0b00000000;
+	PORTC = 0b11111111;
+	
+	DDRD = 0b00000010;
+	PORTD = 0b11111101;
+	
+	PulseDuration = GetDuration(Torque/100.f);
+	TCNT0 = PulseDuration;
+	
+	lcd_init(LCD_DISP_ON);
+	lcd_led(false);
+	lcd_gotoxy(4, 0);
+	lcd_puts("Unwinder");
+	_delay_ms(1000);
+	lcd_clrscr();
+	lcd_home();
+	
+	//Timer1(Init);
+	Timer2(true);
+	ExternalInterrupt(true);
+	USART(Init);
+	USART(On);
+	sei();
+}
+
 int main(void)
 {	
 	unsigned short distance = 0;
 	
 	Initialization();
-	
-	PulseDuration = GetDuration(Torque/100.f);
 
     while (1) 
     {
