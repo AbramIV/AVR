@@ -27,7 +27,11 @@
 
 #define Off				  0				  	  // internal parameters enumeration
 #define On				  1
-#define Init			  2			
+#define Init			  2	
+
+#define Closed				13
+#define Opened				20
+#define TransitionInterval	5
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -39,13 +43,15 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-unsigned short Timer0_OverflowCount = 0;
-unsigned short Timer1_OverflowCount = 0;
 unsigned short Timer2_OverflowCount = 0;
 
 bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;
+
+unsigned short ArmPosition = Closed;
+unsigned short LockCounter = 0;
+bool IsLocked = false;
 
 void Timer0(bool enable)
 {
@@ -57,30 +63,6 @@ void Timer0(bool enable)
 	}
 	
 	TCCR0B = 0x00;										  
-}
-
-ISR(TIMER0_OVF_vect)
-{
-	Timer0_OverflowCount++;	  
-}
-
-void Timer1(bool enable)
-{
-	if (enable)
-	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   
-		High(TIMSK1, TOIE1);
-		TCNT1 = 0;
-		return;
-	}
-	
-	Low(TIMSK1, TOIE1);
-	TCCR1B = 0x00;
-}
-
-ISR(TIMER1_OVF_vect)
-{
-	Timer1_OverflowCount++;
 }
 
 void Timer2(bool enable)
@@ -131,16 +113,38 @@ void Initialization()
 	sei();			
 }
 
-int main(void)
+void ButtonHandle()
 {
-	unsigned short counter = 0;
+	static unsigned short switched = 0;
 	
-	Initialization();
+	if (!Button) switched++;
+	{
+		if (switched == 1)
+		{
+			if (ArmPosition == Closed)
+			{
+				OCR0A =	Opened;
+				ChannelAOn;
+			}
+			else
+			{
+				OCR0A = Closed;
+			}
+			
+			LockCounter = TransitionInterval;
+			switched = 0;
+		}
+	}
+}
 
-	ChannelAOn;
+int main(void)
+{	
+	Initialization();
 
 	while(1)
 	{
+		if (!LockCounter) ButtonHandle();
+		
 		if (HandleAfter8ms)
 		{
 			
@@ -156,18 +160,14 @@ int main(void)
 		if (HandleAfterSecond)	 
 		{
 			LedInv;
-			counter++;
 			
-			if (counter > 2)
+			if (LockCounter) 
 			{
-				if (OCR0A > 3) OCR0A = 3;
-				else OCR0A = 14;
-				
-				counter = 0;
+				LockCounter--;
+				if (OCR0A == Closed) ChannelAOff;
 			}
 			
 			HandleAfterSecond = false;
 		}
 	}
 }
-
