@@ -15,7 +15,7 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
 
-#define Button		Check(PIND, PIND6)     	  // buttons control input pins    
+#define Button		Check(PIND, PIND7)     	  // buttons control input pins    
 
 #define ChannelA	Check(TCCR0A, COM0A1)  	  // on/off pwm on PulsePin
 #define ChannelAOn	High(TCCR0A, COM0A1)
@@ -24,14 +24,10 @@
 #define ChannelB	Check(TCCR0A, COM0B1)  	  // on/off pwm on PulsePin
 #define ChannelBOn	High(TCCR0A, COM0B1)
 #define ChannelBOff	Low(TCCR0A, COM0B1)
-
-#define Off				  0				  	  // internal parameters enumeration
-#define On				  1
-#define Init			  2	
-
-#define Closed				13
-#define Opened				20
-#define TransitionInterval	5
+	
+#define Closed				3	// 256 us
+#define Opened				22	// 1472 us
+#define TransitionInterval	3
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -49,16 +45,15 @@ bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
 bool HandleAfter8ms = false;
 
-unsigned short ArmPosition = Closed;
 unsigned short LockCounter = 0;
-bool IsLocked = false;
 
 void Timer0(bool enable)
 {
 	if (enable)
 	{
 		TCCR0A = (1 << WGM01)|(1 << WGM00);
-		TCCR0B = (1 << CS02)|(0 << CS01)|(1 << CS00);							
+		TCCR0B = (1 << CS02)|(0 << CS01)|(1 << CS00);
+		OCR0A = Closed;							
 		return;
 	}
 	
@@ -110,7 +105,11 @@ void Initialization()
 
 	Timer0(true);
 	Timer2(true);	
-	sei();			
+	sei();
+	
+	LockCounter = TransitionInterval;
+	ChannelAOn;			
+	LedOn;
 }
 
 void ButtonHandle()
@@ -121,10 +120,11 @@ void ButtonHandle()
 	{
 		if (switched == 1)
 		{
-			if (ArmPosition == Closed)
+			if (OCR0A == Closed)
 			{
 				OCR0A =	Opened;
 				ChannelAOn;
+				LedOn;
 			}
 			else
 			{
@@ -159,12 +159,15 @@ int main(void)
 		
 		if (HandleAfterSecond)	 
 		{
-			LedInv;
-			
 			if (LockCounter) 
 			{
 				LockCounter--;
-				if (OCR0A == Closed) ChannelAOff;
+				
+				if (!LockCounter && OCR0A == Closed) 
+				{
+					ChannelAOff;
+					LedOff;
+				}
 			}
 			
 			HandleAfterSecond = false;
