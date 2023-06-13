@@ -25,8 +25,14 @@
 #define ChannelBOn	High(TCCR0A, COM0B1)
 #define ChannelBOff	Low(TCCR0A, COM0B1)
 	
-#define Closed				3	// 256 us
-#define Opened				22	// 1472 us
+/* Direct */
+#define Closed 21 // 1472 us
+#define Opened 7  // 256 us
+
+/* Inverted */
+//#define Closed 232
+//#define Opened 247 
+
 #define TransitionInterval	3
 
 #include <avr/io.h>
