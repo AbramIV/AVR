@@ -26,14 +26,14 @@
 #define ChannelBOff	Low(TCCR0A, COM0B1)
 	
 /* Direct */
-#define Closed 21 // 1472 us
-#define Opened 7  // 256 us
+#define Close 100 // 1472 us	90
+#define Open  45 // 256 us	30
 
 /* Inverted */
-//#define Closed 232
-//#define Opened 247 
+//#define Closed 165
+//#define Opened 225 
 
-#define TransitionInterval	3
+#define TransitionInterval	5
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -45,21 +45,23 @@
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-unsigned short Timer2_OverflowCount = 0;
+unsigned short Direction = Close;
 
+unsigned short Timer2_OverflowCount = 0;
 bool HandleAfterSecond = false;
 bool HandleAfter200ms = false;
-bool HandleAfter8ms = false;
+bool HandleAfter40ms = false;
 
-unsigned short LockCounter = 0;
+unsigned short LockCounter = TransitionInterval;
 
 void Timer0(bool enable)
 {
 	if (enable)
 	{
 		TCCR0A = (1 << WGM01)|(1 << WGM00);
-		TCCR0B = (1 << CS02)|(0 << CS01)|(1 << CS00);
-		OCR0A = Closed;							
+		TCCR0B = (1 << CS02)|(0 << CS01)|(0 << CS00); // divider 256, 1 tick = 16 us
+		OCR0A = Close;
+		ChannelAOn;							
 		return;
 	}
 	
@@ -72,7 +74,6 @@ void Timer2(bool enable)
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				
 		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	
 		High(TIMSK2, TOIE2);							
 		return;
@@ -85,7 +86,8 @@ void Timer2(bool enable)
 ISR(TIMER2_OVF_vect)
 {
 	Timer2_OverflowCount++;
-	HandleAfter8ms = true;
+	
+	if (Timer2_OverflowCount % 5 == 0) HandleAfter40ms = true;
 	
 	if (Timer2_OverflowCount % 25 == 0) HandleAfter200ms = true;
 	
@@ -112,9 +114,7 @@ void Initialization()
 	Timer0(true);
 	Timer2(true);	
 	sei();
-	
-	LockCounter = TransitionInterval;
-	ChannelAOn;			
+			
 	LedOn;
 }
 
@@ -126,16 +126,11 @@ void ButtonHandle()
 	{
 		if (switched == 1)
 		{
-			if (OCR0A == Closed)
-			{
-				OCR0A =	Opened;
-				ChannelAOn;
-				LedOn;
-			}
-			else
-			{
-				OCR0A = Closed;
-			}
+			if (OCR0A == Close) Direction = Open;
+			else Direction = Close;
+			
+			ChannelAOn;
+			LedOn;
 			
 			LockCounter = TransitionInterval;
 			switched = 0;
@@ -151,25 +146,21 @@ int main(void)
 	{
 		if (!LockCounter) ButtonHandle();
 		
-		if (HandleAfter8ms)
+		if (HandleAfter40ms)
 		{
+			if (Direction == Close && OCR0A < Close) OCR0A++;
+			if (Direction == Open && OCR0A > Open) OCR0A--;
 			
-			HandleAfter8ms = false;
+			HandleAfter40ms = false;
 		}
 		
-		if (HandleAfter200ms)
-		{	
-			
-			 HandleAfter200ms = false;
-		}
-		
-		if (HandleAfterSecond)	 
+		if (HandleAfterSecond)
 		{
-			if (LockCounter) 
+			if (LockCounter)
 			{
 				LockCounter--;
 				
-				if (!LockCounter && OCR0A == Closed) 
+				if (!LockCounter && OCR0A == Close)
 				{
 					ChannelAOff;
 					LedOff;
