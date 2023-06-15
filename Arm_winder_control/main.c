@@ -15,19 +15,18 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
 
+#define PulseA		Check(PORTD, PORTD6)
+#define PulseAOn	High(PORTD, PORTD6)
+#define PulseAOff	Low(PORTD, PORTD6)
+
 #define Button		Check(PIND, PIND7)     	  // buttons control input pins    
 
-#define ChannelA	Check(TCCR0A, COM0A1)  	  // on/off pwm on PulsePin
-#define ChannelAOn	High(TCCR0A, COM0A1)
-#define ChannelAOff	Low(TCCR0A, COM0A1)
-
-#define ChannelB	Check(TCCR0A, COM0B1)  	  // on/off pwm on PulsePin
-#define ChannelBOn	High(TCCR0A, COM0B1)
-#define ChannelBOff	Low(TCCR0A, COM0B1)
+#define PulsesOn  High(TCCR0B, CS02)
+#define PulsesOff Low(TCCR0B, CS02)
 	
 /* Direct */
-#define Close 100 // 1472 us	90
-#define Open  45 // 256 us	30
+#define Close 100 // 1472 us 90
+#define Open  50  // 256 us	 30
 
 /* Inverted */
 //#define Closed 165
@@ -58,10 +57,9 @@ void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0A = (1 << WGM01)|(1 << WGM00);
+		TCCR0A = (1 << COM0A1)|(1 << WGM01)|(1 << WGM00);
 		TCCR0B = (1 << CS02)|(0 << CS01)|(0 << CS00); // divider 256, 1 tick = 16 us
 		OCR0A = Close;
-		ChannelAOn;							
 		return;
 	}
 	
@@ -129,7 +127,7 @@ void ButtonHandle()
 			if (OCR0A == Close) Direction = Open;
 			else Direction = Close;
 			
-			ChannelAOn;
+			PulsesOn;
 			LedOn;
 			
 			LockCounter = TransitionInterval;
@@ -156,15 +154,12 @@ int main(void)
 		
 		if (HandleAfterSecond)
 		{
-			if (LockCounter)
+			if (LockCounter) LockCounter--;
+			
+			if (!LockCounter && OCR0A == Close)
 			{
-				LockCounter--;
-				
-				if (!LockCounter && OCR0A == Close)
-				{
-					ChannelAOff;
-					LedOff;
-				}
+				PulsesOff;
+				LedOff;
 			}
 			
 			HandleAfterSecond = false;
