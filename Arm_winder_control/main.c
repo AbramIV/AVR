@@ -25,7 +25,7 @@
 #define PulsesOff Low(TCCR0B, CS02)
 	
 /* Direct */
-#define Close 100 // 1472 us 90
+#define Close 115 // 1472 us 90
 #define Open  50  // 256 us	 30
 
 /* Inverted */
