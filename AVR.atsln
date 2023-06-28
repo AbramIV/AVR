@@ -84,6 +84,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Unwinder", "Unwinder\Unwind
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Arm_winder_control", "Arm_winder_control\Arm_winder_control.cproj", "{813E3F14-C30F-4F66-A0EC-CDA1F334E1AD}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "PumpCounter", "PumpCounter\PumpCounter.cproj", "{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -154,6 +156,10 @@ Global
 		{813E3F14-C30F-4F66-A0EC-CDA1F334E1AD}.Debug|AVR.Build.0 = Debug|AVR
 		{813E3F14-C30F-4F66-A0EC-CDA1F334E1AD}.Release|AVR.ActiveCfg = Release|AVR
 		{813E3F14-C30F-4F66-A0EC-CDA1F334E1AD}.Release|AVR.Build.0 = Release|AVR
+		{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}.Debug|AVR.ActiveCfg = Debug|AVR
+		{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}.Debug|AVR.Build.0 = Debug|AVR
+		{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}.Release|AVR.ActiveCfg = Release|AVR
+		{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
