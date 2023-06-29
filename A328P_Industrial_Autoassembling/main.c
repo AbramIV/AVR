@@ -32,6 +32,7 @@
 
 #define BtnPlus		Check(PIND, PIND6)     	  // buttons control input pins
 #define BtnMinus	Check(PIND, PIND7)     
+#define BtnEnter	Check(PINB, PINB3)
 
 #define Pulse		Check(TCCR2A, COM2B1)  	  // on/off pwm on PulsePin
 #define PulseOn		High(TCCR2A, COM2B1)
@@ -143,6 +144,7 @@ bool ManualControl = false;
 
 bool PlusPushed = false;
 bool MinusPushed = false;
+bool EnterPushed = false;
 
 unsigned short PulseLockCount = 0;
 unsigned short CurrentError = 0;
@@ -600,7 +602,7 @@ void PrintError()
 
 void ControlButtons()
 {
-	static unsigned short plus = 0, minus = 0;
+	static unsigned short plus = 0, minus = 0, enter = 0;
 	
 	if (!BtnPlus) plus++;
 	{
@@ -619,11 +621,20 @@ void ControlButtons()
 			minus = 0;
 		}
 	}
+	
+	if (!BtnEnter) enter++;
+	{
+		if (enter == 1)
+		{
+			EnterPushed = true;
+			enter = 0;
+		}
+	}
 }
 
 void ModesControl()
 {
-	if (PlusPushed && MinusPushed)
+	if (EnterPushed)
 	{
 		if (InterfaceMode == Common)
 		{
@@ -658,8 +669,7 @@ void ModesControl()
 			SaveSetting = true;
 		}
 		
-		PlusPushed = false;
-		MinusPushed = false;
+		EnterPushed = false;
 	}
 }
 
