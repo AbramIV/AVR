@@ -83,6 +83,7 @@
 #include <string.h>
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
+#include <util/crc16.h>
 
 const unsigned short ERROR_A = 1;					// fault codes
 const unsigned short ERROR_B = 2;
@@ -249,18 +250,44 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
+unsigned short CRC8(char* data)
+{
+	unsigned short crc = 0;
+	
+	for (int i = 0; i < sizeof(data); i++) 
+	{
+		crc ^= data[i];
+		
+		for (int j = 0; j < 8; j++) 
+		{
+			if (crc & 0x80) 
+			{
+				crc = (crc << 1) ^ 0x07;
+			} 
+			else 
+			{
+				crc = crc << 1;
+			}
+		}
+	}
+	
+	return crc;
+}
+
 void Transmit(short *p_a, short *p_b, short *p_d)
 {
-	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 };
-	static char buffer[32] = { 0 };
+	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 }, sum[8] = { 0 }, buffer[32] = { 0 };
 	
-	sprintf(a, "A%d$ ", *p_a);
-	sprintf(b, "P%d$ ", *p_b);
+	sprintf(a, "$A%d$", *p_a);
+	sprintf(b, "P%d$", *p_b);
 	sprintf(d, "D%d$", *p_d);
 	
 	strcat(buffer, a);
 	strcat(buffer, b);
 	strcat(buffer, d);
+	
+	//sprintf(sum, "%X", CRC8(buffer));
+	//strcat(buffer, sum);
 	
 	TxString(buffer);
 	
@@ -286,6 +313,7 @@ short Kalman(short value, bool reset)
 	currentEstimate = lastEstimate + Gain * (value - lastEstimate);
 	estimateVariation = (1.f - Gain) * estimateVariation + fabs(lastEstimate - currentEstimate) * FactorSpeed;
 	lastEstimate = currentEstimate;
+	
 	return (short)currentEstimate;
 }
 
@@ -852,7 +880,7 @@ int main(void)
 	short a = 0, b = 0, r = 0, d = 0;	
 
 	Initialization();
-
+	
 	while(1)
 	{
 		if (HandleAfter8ms)
