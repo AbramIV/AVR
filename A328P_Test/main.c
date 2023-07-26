@@ -441,10 +441,20 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char frequency[20], tension[20];
-	//sprintf(frequency, "F%.2f$", DDS.frequency);
-	sprintf(tension, "Tn%.2f", Convert.tension);
-	TxString(frequency);
+	static char a[8] = { 0 }, b[8] = { 0 }, d[8] = { 0 };
+	static char buffer[32] = { 0 };
+	
+	sprintf(a, "A%d$ ", 379);
+	sprintf(b, "P%d$ ", 384);
+	sprintf(d, "D%d", 2);
+	
+	strcat(buffer, a);
+	strcat(buffer, b);
+	strcat(buffer, d);
+	
+	TxString(buffer);
+	
+	buffer[0] = '\0';
 }
 
 void Receive()
@@ -650,53 +660,53 @@ void Control()
 
 int main(void)
 {
-	DDRB = 0b00101001;
+	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
-	DDRC = 0b00000000;
+	DDRC = 0b00111111;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00001010;
-	PORTD = 0b00110111;
+	DDRD = 0b00000100;
+	PORTD = 0b11111011;
 	
 	//Timer1(Counter);
 	Timer2(On);
-	Comparator();
+	//Comparator();
 	USART(Init);
 	USART(On);
 	sei();
 	
-	PulseOn;
+	//for (int i = 0; i < 1024; i++) eeprom_update_word((uint16_t*)i, 0);
 	
 	while(1)
 	{	
-		if (handleAfterSecond) 
+		if (handleAfterSecond)
 		{
 			LedInv;
-			TxString("Hello");
+
+			Transmit();
+
 			handleAfterSecond = false;
 		}
-		
-		Control();
-		
-		if (MainTimer.isr)
-		{
 
-			MainTimer.ms40++;
-			MainTimer.isr = false;
-		}
-		
-		if (MainTimer.ms200)
-		{
+		//Control();
 
-			MainTimer.ms200 = 0;
-		}
-		
-		if (MainTimer.ms1000)
-		{
-			MainTimer.sec++;
-			if (MainTimer.sec >= 59) MainTimer.sec = 0;
-			MainTimer.ms1000 = 0;
-		}
+		//if (MainTimer.isr)
+		//{
+			//MainTimer.ms40++;
+			//MainTimer.isr = false;
+		//}
+
+		//if (MainTimer.ms200)
+		//{
+			//MainTimer.ms200 = 0;
+		//}
+
+		//if (MainTimer.ms1000)
+		//{
+			//MainTimer.sec++;
+			//if (MainTimer.sec >= 59) MainTimer.sec = 0;
+			//MainTimer.ms1000 = 0;
+		//}
 	}								  
 }

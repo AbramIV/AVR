@@ -2,7 +2,7 @@
  * main.c
  *
  * Created: 11/18/2022 12:57:15 PM
- *  Author: igor.abramov
+ * Author: igor.abramov
  * OCR2A min 135 - 0.256 us - 3.2 %
  * OCR2A max 250 - 7.8 ms - 96 %   
  * flip-flop T ~ 6.2 ms
@@ -14,66 +14,79 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))	// set bit
 #define Low(REG,BIT)   (REG &= ~(1<<BIT))	// clear bit
 
-#define RightLed	Check(PORTB, PORTB0)	// if f1 < f2 - led on else off
-#define RightLedOn	High(PORTB, PORTB0)
-#define RightLedOff	Low(PORTB, PORTB0)
-
-#define LeftLed		Check(PORTB, PORTB1)	// if f1 > f2 - led on else off
-#define LeftLedOn	High(PORTB, PORTB1)
-#define LeftLedOff	Low(PORTB, PORTB1)
-
-#define FaultLed	Check(PORTB, PORTB2)	// if fault - led on before next start or reset
-#define FaultLedOn	High(PORTB, PORTB2)
-#define FaultLedOff	Low(PORTB, PORTB2)
+#define Fault		Check(PORTB, PORTB2)	// output for open contact of yarn brake
+#define FaultOn		High(PORTB, PORTB2)
+#define FaultOff	Low(PORTB, PORTB2)
 
 #define PulsePin	Check(PORTB, PORTB3)	// PWM pin
-
-#define Fault		Check(PORTB, PORTB4)	// output for open contact of yarn brake
-#define FaultOn		High(PORTB, PORTB4)
-#define FaultOff	Low(PORTB, PORTB4)
 
 #define Led			Check(PORTB, PORTB5)	// operating led, period = 2 s during winding, if stop off
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
- 
+
+#define Dot			Check(PORTD, PORTD2)
+#define DotOn		High(PORTD, PORTD2)
+#define DotOff		Low(PORTD, PORTD2)
+
 #define Running		(!Check(PIND, PIND3))  // spindle run input
 #define InputF1		Check(PIND, PIND4)	   // T0 speed pulses input
 #define InputF2		Check(PIND, PIND5)     // T1 speed pulses input
+
+#define BtnUp		Check(PIND, PIND6)     // T1 speed pulses input
+#define BtnDown		Check(PIND, PIND7)     // T1 speed pulses input
 
 #define Pulse		Check(TCCR2A, COM2A1)  // Fast PWM output 2 of timer 2
 #define PulseOn		High(TCCR2A, COM2A1)
 #define PulseOff	Low(TCCR2A, COM2A1)
 
-#define Off				  0				// hardware features modes
+#define Off				  0				   // hardware features modes
 #define On				  1
 #define Init			  2
+#define Setting			  3
+#define	Current			  4
+#define Error			  5
 
-#define Right	 		  10			// move directions of motor
+#define Right	 		  10				// move directions of motor
 #define Left 			  20
 #define Locked			  30
-	
-#define StartDelay		  30			// delay to start measuring after spindle start
-#define FaultDelay		  200  			// (seconds) if Mode.operation != Stop more than FaultDelay seconds then spindle stop
-#define Setpoint		  2				// ratio value for stop motor
-#define RangeUp			  4				// if ratio > range up then motor moves left
-#define RangeDown		  -4			// if ratio < range down then motor moves right
-#define StepDuration	  2				// work time of PWM to one step (roughly)
-#define StepsInterval	  20			// interval between steps
-#define MeasureFaultLimit 100			// count of measurements frequency. if f < 10 more than 100 times stop
+
+#define OverfeedPointer	  0
 
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdio.h>
-#include <stdlib.h>			
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <avr/eeprom.h>
 
-volatile unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
-volatile unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
-volatile bool handleAfterSecond = false;		   // flag to handle data, every second
-volatile bool handleAfter8ms = false;
+const unsigned short START_DELAY = 30;
+const unsigned short SETPOINT = 2;
+const unsigned short PULSE_DURATION = 2;
+const unsigned short INTERVAL_BETWEEN_PULSES = 30;
+
+const unsigned short ERROR_F1 = 1;
+const unsigned short ERROR_F2 = 2;
+const unsigned short ERROR_F = 3;
+const unsigned short ERROR_MOTOR = 4;
+const unsigned short ERROR_OVERREG = 5;
+
+unsigned short timer0_overflowCount = 0;  // count of ISR timer 0 (clock from pin T0)
+unsigned short timer1_overflowCount = 0;  // count of ISR timer 1 (clock from pin T1)
+unsigned short timer2_overflowCount = 0;  // count of ISR timer 2 (clock from 16 MHz)
+bool handleAfterSecond = false;		   // flag to handle data, every second
+bool handleAfter8ms = false;
+
+short overfeed = 0;					 // %
+
+unsigned short displayMode = Setting;
+unsigned short displaySettingCount = 5;
+
+bool pulseIsLocked = false;
+unsigned short pulseLockCount = 0;
+unsigned short currentError = 0;
 
 void Timer0(bool enable)
 {
@@ -81,26 +94,36 @@ void Timer0(bool enable)
 	{
 		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);	 // external source clock
 		High(TIMSK0, TOIE0);							 // ISR enabled
+		TCNT0 = 0;
 		return;
 	}
-														 // stop count
-	TCCR0B = 0x00;
+	
+	Low(TIMSK0, TOIE0);
+	TCCR0B = 0x00;										  // stop count
 }
 
 ISR(TIMER0_OVF_vect)
 {
-	timer0_overflowCount++;	  // increase ISR counter 
+	timer0_overflowCount++;	  // increase ISR counter
 }
 
 void Timer1(bool enable)
 {
 	if (enable)
 	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock 
+		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);   // external source clock
+		High(TIMSK1, TOIE1);
+		TCNT1 = 0;
 		return;
 	}
 	
+	Low(TIMSK1, TOIE1);
 	TCCR1B = 0x00;
+}
+
+ISR(TIMER1_OVF_vect)
+{
+	timer1_overflowCount++;
 }
 
 void Timer2(bool enable)
@@ -109,7 +132,7 @@ void Timer2(bool enable)
 	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM 
+		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
 		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
 		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
 		return;
@@ -120,7 +143,7 @@ void Timer2(bool enable)
 }
 
 ISR(TIMER2_OVF_vect)
-{	
+{
 	timer2_overflowCount++;					 // increase overflow variable
 	handleAfter8ms = true;
 	
@@ -129,8 +152,53 @@ ISR(TIMER2_OVF_vect)
 		handleAfterSecond = true;			 // set flag to handle data
 		timer2_overflowCount = 0;			 // reset overflow counter
 	}
-											 // load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
+	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
 	TCNT2 = 131;
+}
+
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+		UCSR0B |= (1 << TXEN0);
+		break;
+		case Off:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!Check(UCSR0A, UDRE0));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit(short f1, short f2, short ratio)
+{
+	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
+	static char buffer[32] = { 0 };
+	
+	sprintf(fa, "A%d$", f1);
+	sprintf(fp, "P%d$", f2);
+	sprintf(fr, "R%d$\r\n", ratio);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
+	strcat(buffer, fr);
+	TxString(buffer);
+	
+	buffer[0] = '\0';
 }
 
 short Kalman(short value, bool reset)
@@ -160,26 +228,38 @@ void Initialization()
 	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
-	DDRC = 0b00000000;
-	PORTC = 0b11111111;
+	DDRC = 0b00111111;
+	PORTC = 0b11000000;
 	
-	DDRD = 0b00000000;
-	PORTD = 0b11111111;
+	DDRD = 0b00000100;
+	PORTD = 0b11111011;
 
-	Timer2(true);	// timer 2 switch on								
+	overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
+
+	Timer2(true);	// timer 2 switch on
+	USART(Init);
+	USART(On);
 	sei();			// enable global interrupts
 }
 
+short GetRatio(short f1, short f2)
+{
+	if (!f1 && !f2) return 0;
+	
+	if (f1 <= f2) return (1-(float)f1/(f2 == 0 ? 1 : f2))*1000;
+	else return (1-(float)f2/f1)*-1000;
+}
+
 void SetDirection(short ratio, bool isReset)
-{	
-	static unsigned short faultCounter = 0, motorState = Locked, stepCount = 0, stepsInterval = 0;
+{
+	static unsigned short motorState = Locked, stepCount = 0, stepsInterval = 0;
 	
 	if (isReset)
 	{
-		faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
 		stepsInterval = 0;
+		return;
 	}
 	
 	if (stepsInterval)	 // after motor moving step, interval before new step
@@ -188,16 +268,13 @@ void SetDirection(short ratio, bool isReset)
 		return;
 	}
 	
-	if (fabs(ratio) <= Setpoint)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
+	if (fabs(ratio) <= SETPOINT)   // if ratio reached setpoint, reset fault counter, leds off, stop motor
 	{
 		if (motorState == Locked) return;
 		PulseOff;
-		RightLedOff;
-		LeftLedOff;
-		if (faultCounter > 0) faultCounter = 0;
 		motorState = Locked;
 		stepCount = 0;
-		stepsInterval = StepsInterval;
+		stepsInterval = INTERVAL_BETWEEN_PULSES;
 		return;
 	}
 	
@@ -208,143 +285,275 @@ void SetDirection(short ratio, bool isReset)
 		if (stepCount < 1)	   // if stepCount reached 0 motor stopped
 		{
 			PulseOff;
-			stepsInterval = StepsInterval;
+			stepsInterval = INTERVAL_BETWEEN_PULSES;
 		}
 		
 		return;
 	}
 	
-	if (faultCounter > FaultDelay) 	// if fault counter reached fault limit it is not regulated, stop spindle
-	{					
-		PulseOff;
-		FaultLedOn;
-		FaultOn;
-		return;
-	}
-	
-	if (ratio >= RangeUp) 
+	if (ratio >= 5)
 	{
-		if (motorState != Right) // if f1 < f2 pwm is on with width < 1 %
-		{
-			OCR2A = 135;
-			motorState = Right;
-			RightLedOn;
-			LeftLedOff;
-			PulseOn;
-			stepCount = StepDuration;
-		}
-		
-		faultCounter++;		 // ratio not in ranges, increase fault count
-		stepCount = StepDuration;
+		OCR2A = 135;
+		motorState = Right;
+		stepCount = PULSE_DURATION;
 		PulseOn;
-		return;
 	}
 	
-	if (ratio <= RangeDown) 
+	if (ratio <= -5)
 	{
-		if (motorState != Left)  // if f1 < f2 pwm is on with width 99%
-		{
-			OCR2A = 250;
-			motorState = Left;
-			LeftLedOn;
-			RightLedOff;
-			PulseOn;
-			stepCount = StepDuration;
-		}
-		
-		faultCounter++;		 // ratio not in ranges, increase fault count
-		stepCount = StepDuration;
+		OCR2A = 250;
+		motorState = Left;
+		stepCount = PULSE_DURATION;
 		PulseOn;
 	}
 }
 
-void ShowOverfeed(short overfeed)
+void Print(short value)
 {
+	static unsigned short dozens = 0, units = 0, uvalue = 0;
 	
+	uvalue = abs(value);
+	
+	if (uvalue > 999)
+	{
+		dozens = 9;
+		units = 9;
+	}
+	else if (uvalue > 100)
+	{
+		dozens = uvalue / 100;
+		units = (uvalue / 10) % 10;
+	}
+	else
+	{
+		dozens = uvalue / 10;
+		units = uvalue % 10;
+	}
+	
+	if (Check(PORTC, PORTC5))
+	{
+		PORTC = 0xD0 | units;
+		
+		if (Dot)
+		{
+			if (value >= 0) DotOff;
+		}
+		else
+		{
+			if (value < 0) DotOn;
+		}
+	}
+	else
+	{
+		PORTC = 0xE0 | dozens;
+		
+		if (Dot)
+		{
+			if (uvalue >= 100) DotOff;
+		}
+		else
+		{
+			if (uvalue < 100) DotOn;
+		}
+	}
 }
-							   					
+
+void PrintError()
+{
+	static bool blink = true;
+	
+	if (blink)
+	{
+		PORTC = 0xD0 | currentError;
+		if (Dot) DotOff;
+		blink = !blink;
+		return;
+	}
+	
+	PORTC |= 0x30;
+	blink = !blink;
+}
+
+void ControlButtons()
+{
+	static short overfeedUp = 0, overfeedDown = 0;
+	static bool isChanged = false;
+	
+	if (BtnUp) overfeedUp = 0;
+	{
+		if (!BtnUp) overfeedUp++;
+		{
+			if (overfeedUp == 1)
+			{
+				if (overfeed < 200)
+				{
+					if (displayMode != Setting)
+					{
+						displayMode = Setting;
+						displaySettingCount = 5;
+						return;
+					}
+					overfeed++;
+					isChanged = true;
+				}
+				else return;
+			}
+		}
+	}
+	
+	if (BtnDown) overfeedDown = 0;
+	{
+		if (!BtnDown) overfeedDown++;
+		{
+			if (overfeedDown == 1)
+			{
+				if (overfeed > -200)
+				{
+					if (displayMode != Setting)
+					{
+						displayMode = Setting;
+						displaySettingCount = 5;
+						return;
+					}
+					overfeed--;
+					isChanged = true;
+				}
+				else return;
+			}
+		}
+	}
+	
+	if (isChanged)
+	{
+		eeprom_update_word((uint16_t*)OverfeedPointer, overfeed);
+		displayMode = Setting;
+		displaySettingCount = 5;
+		isChanged = false;
+	}
+}
+
+void InstantValuesCountrol(short *p_f1, short *p_f2)
+{
+	static unsigned short errorCount = 0;
+	
+	if (*p_f1 < 10 || *p_f2 < 10)
+	{
+		errorCount++;
+		if (*p_f1 < 10) currentError = ERROR_F1;
+		if (*p_f2 < 10) currentError = ERROR_F2;
+		if (*p_f1 < 10 && *p_f2 < 10) currentError = ERROR_F;
+		if (errorCount >= 30)
+		{
+			displayMode = Error;
+			errorCount = 0;
+			FaultOn;
+		}
+		return;
+	}
+	
+	if (errorCount) errorCount = 0;
+}
+
+void DisplayControl(bool isRun)
+{
+	if (displaySettingCount)
+	{
+		displaySettingCount--;
+		
+		if (!displaySettingCount)
+		{
+			if (isRun) displayMode = Current;
+			else displayMode = Off;
+		}
+	}
+}
+
+bool Start()
+{
+	Timer0(true);
+	Timer1(true);
+	currentError = Off;
+	if (!displaySettingCount) displayMode = Current;
+	return true;
+}
+
+bool Stop()
+{
+	LedOff;
+	PulseOff;
+	FaultOff;
+	Timer0(false);
+	Timer1(false);
+	SetDirection(0, true);	// reset function counters
+	Kalman(0, true);
+	if (!displaySettingCount) displayMode = Off;
+	return false;
+}
+
 int main(void)
 {
-	unsigned short startDelayCount = StartDelay, f1_measureFaults = 0, f2_measureFaults = 0, displayMode = Off;
-	short f1 = 0, f2 = 0, ratio = 0, overfeed = 0;
+	unsigned short startDelayCount = START_DELAY;
+	short f1 = 0, f2 = 0, ratio = 0, difference = 0;
 	bool run = false;
 	
 	Initialization();
-	
-    while(1)
-    {	
+
+	while(1)
+	{
 		if (handleAfter8ms)
 		{
-			if (displayMode == On)
-			{
-				ShowOverfeed(abs(overfeed));	
-			}
+			ControlButtons();
+			
+			if (displayMode == Setting) Print(overfeed);
+			if (displayMode == Current)	Print(ratio);
+			if (displayMode == Error)	PrintError();
+			if (displayMode == Off && !(Check(PORTC, PORTC4) && Check(PORTC, PORTC5))) PORTC |= 0x30;
 			
 			handleAfter8ms = false;
 		}
-				
+		
 		if (handleAfterSecond)	  // if second counted handle data
-		{	
+		{
 			if (Running && !run)  // initialize before start regulation
 			{
-				FaultLedOff;
-				RightLedOff;
-				LeftLedOff;
-				run = true;
-				startDelayCount = StartDelay;  // set seconds for pause before calc
-				Timer0(true);
-				Timer1(true);
+				run = Start();
+				handleAfterSecond = false;
+				continue;
 			}
 			
-			if (!Running && run)   // reset after stop spindle; right, left, fault could be high before next start
+			if (!Running && run)
 			{
-				LedOff;
-				PulseOff;
-				if (Fault) FaultOff;
-				Timer0(false);
-				Timer1(false);
-				SetDirection(0, true);	// reset function counters
-				Kalman(0, true);
-				f1_measureFaults = 0;
-				f2_measureFaults = 0;
-				startDelayCount = 0;
-				run = false;
-				f1 = 0;
-				f2 = 0;
+				run = Stop();
+				startDelayCount = START_DELAY;
 			}
-					
-			if (run)	 // handle data after startDelay
+			
+			if (run)						 // handle data after startDelay
 			{
 				LedInv;						 // operating LED	inversion
 
-				f1 = (short)TCNT0 + timer0_overflowCount*256;  // calculation f1	(aramid)
-				f2 = (short)TCNT1;										// calculation f2	(polyamide)
-	
+				f1 = (short)TCNT0 + timer0_overflowCount*256;    // calculation f1	(aramid)
+				f2 = (short)TCNT1 + timer1_overflowCount*65535L; // calculation f2	(polyamide)
+				
+				InstantValuesCountrol(&f1, &f2);
+				
+				ratio = GetRatio(f1, f2);
+				difference = Kalman(overfeed - ratio, false);
+				
+				if (!startDelayCount)
+				{
+					if (!pulseIsLocked) SetDirection(difference, false);		// calculation average ratio
+				}
+				
 				TCNT0 = 0;					  // reset count registers after receiving values
 				TCNT1 = 0;
 				timer0_overflowCount = 0;
-	
-				if (f1 <= f2) ratio = Kalman((1-(float)f1/(f2 == 0 ? 1 : f2))*1000, false);	  
-				else ratio = Kalman((1-(float)f2/f1)*-1000, false);
-				
-				if (!startDelayCount) SetDirection(ratio, false);		// calculation average ratio
-				
-				if (f1 < 10) f1_measureFaults++;   // count measure error f1 (10 is experimental value, not tested yet)
-				if (f2 < 10) f2_measureFaults++;   // count measure error f2
-				
-				// if error measure reached limit, stop spindle, led on accordingly wrong measure channel
-				if (f1_measureFaults >= MeasureFaultLimit || f2_measureFaults >= MeasureFaultLimit)
-				{
-					PulseOff;
-					FaultLedOn;
-					FaultOn;
-					if (f1_measureFaults >= MeasureFaultLimit) RightLedOn; else LeftLedOn; // set led accordingly measure fault channel
-				}
 			}
 			
 			if (startDelayCount) startDelayCount--;  // start delay counter
 
+			DisplayControl(run);
+
 			handleAfterSecond = false;	  // reset handle second flag
 		}
-    }
+	}
 }

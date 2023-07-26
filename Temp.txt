@@ -41,3 +41,89 @@ float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
 	LastEstimate = CurrentEstimate;
 	return CurrentEstimate;	
 }
+
+
+
+
+eeprom_update_word((uint16_t*)OverfeedPointer, 10);
+	eeprom_update_word((uint16_t*)SetPointPounter, 1);
+	eeprom_update_word((uint16_t*)PulseDurationPointer, 2);
+	eeprom_update_word((uint16_t*)PulsesIntervalPointer, 4);
+	eeprom_update_word((uint16_t*)StartDelayPointer, 30);
+	eeprom_update_word((uint16_t*)FactorAPointer, 0);
+	eeprom_update_word((uint16_t*)FactorBPointer, 0);
+	eeprom_update_word((uint16_t*)FactorMeasurePointer, 5);
+	eeprom_update_word((uint16_t*)FactorEstimatePointer, 5);
+	eeprom_update_word((uint16_t*)FactorSpeedPointer, 50);
+
+
+
+
+
+
+
+	static char fa[10] = { 0 }, fp[10] = { 0 }, fr[10];
+	static char buffer[32] = { 0 };
+	
+	sprintf(fa, "A%d$", *f1);
+	sprintf(fp, "P%d$", *f2);
+	sprintf(fr, "R%d$", *ratio);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
+	strcat(buffer, fr);
+	TxString(buffer);
+	
+	buffer[0] = '\0';
+
+		static char value[32] = { 0 };
+		
+	sprintf(value, "%d$\r\n", Overfeed);
+	TxString(value);
+	memset(value, 0, 32);
+	
+	sprintf(value, "%d$\r\n", Setpoint);
+	TxString(value);
+	memset(value, 0, 32);
+	sprintf(value, "%d$\r\n", PulseDuration);
+	TxString(value);
+	memset(value, 0, 32);
+	sprintf(value, "%d$\r\n", PulsesInterval);
+	TxString(value);
+	 memset(value, 0, 32);
+	sprintf(value, "%d$\r\n", StartDelay);
+	TxString(value);
+	 memset(value, 0, 32);
+	sprintf(value, "%.2f$\r\n", FactorA);
+	TxString(value);
+	 memset(value, 0, 32);
+	sprintf(value, "%.2f$\r\n", FactorB);
+	TxString(value);
+	  memset(value, 0, 32);
+	sprintf(value, "%d$\r\n", FactorMeasure);
+	TxString(value);
+		memset(value, 0, 32);
+	sprintf(value, "%d$\r\n", FactorEstimate);
+	TxString(value);
+	   memset(value, 0, 32);
+	sprintf(value, "%.3f$\r\n", FactorSpeed);
+	TxString(value);
+	 memset(value, 0, 32);
+	TxString("\r\n");
+
+
+	eeprom_update_word((uint16_t*)OverfeedPointer, 0);
+	eeprom_update_word((uint16_t*)SetpointPointer, 2);
+	eeprom_update_word((uint16_t*)HysteresisPointer, 4);
+	eeprom_update_word((uint16_t*)PulseDurationPointer, 2);
+	eeprom_update_word((uint16_t*)PulsesIntervalPointer, 4);
+	eeprom_update_word((uint16_t*)StartDelayPointer, 30);
+	eeprom_update_word((uint16_t*)FactorAPointer, 0);
+	eeprom_update_word((uint16_t*)FactorBPointer, 0);
+	eeprom_update_word((uint16_t*)DividerAPointer, 1);
+	eeprom_update_word((uint16_t*)DividerBPointer, 1);
+	eeprom_update_word((uint16_t*)FactorMeasurePointer, 5);
+	eeprom_update_word((uint16_t*)FactorEstimatePointer, 5);
+	eeprom_update_word((uint16_t*)FactorSpeedPointer, 50);
+	eeprom_update_word((uint16_t*)DisplayTimeoutPointer, 60);
+	eeprom_update_word((uint16_t*)IsTransmitPointer, 0); 
+	eeprom_update_word((uint16_t*)MeasuresLimitPointer, 10);
