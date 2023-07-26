@@ -93,6 +93,7 @@ const unsigned short ERROR_OVERTIME_MOVING = 5;
 
 const unsigned short MEASURE_DELAY = 10;	// const delay before start to avoid measurements because PA has extremely tension  
 const unsigned short SETTING_EXIT = 5;		// delay before exit settings if wasn't any actions
+const unsigned short SETTING_AUTO_EXIT = 10; //
 
 // array of pointer to convenient navigate
 short Pointers[] = { OverfeedPointer, SetpointPointer, HysteresisUpPointer, HysteresisDownPointer, PulseDurationPointer, 
@@ -138,6 +139,7 @@ unsigned short DisplayMode = Off;		 // current display mode
 unsigned short IndexCurrentSetting = 0;	 
 unsigned short DisplayTimeoutCount = 0;
 unsigned short SettingExitCount = 0;
+unsigned short SettingAutoExitCount = 0;
 bool Blink = false;
 bool SaveSetting = false;
 bool ManualControl = false;
@@ -245,32 +247,23 @@ void TxChar(unsigned char c)
 	UDR0 = c;
 }
 
-void TxString(const char* s)
+void TxString(const char *s)
 {
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-unsigned short CRC8(char* data)
+char GetSum(char *data)
 {
-	unsigned short crc = 0;
-	
-	for (int i = 0; i < sizeof(data); i++) 
+	char crc = 0x00;
+
+	while (strlen(data))
 	{
-		crc ^= data[i];
-		
-		for (int j = 0; j < 8; j++) 
-		{
-			if (crc & 0x80) 
-			{
-				crc = (crc << 1) ^ 0x07;
-			} 
-			else 
-			{
-				crc = crc << 1;
-			}
-		}
+		crc ^= *data++;
+
+		for (unsigned short i = 0; i < 8; i++) 
+			crc = crc & 0x80 ? (crc << 1) ^ 0x7 : crc << 1;
 	}
-	
+
 	return crc;
 }
 
@@ -286,12 +279,12 @@ void Transmit(short *p_a, short *p_b, short *p_d)
 	strcat(buffer, b);
 	strcat(buffer, d);
 	
-	//sprintf(sum, "%X", CRC8(buffer));
-	//strcat(buffer, sum);
+	sprintf(sum, "0x%X", GetSum(buffer));
+	strcat(buffer, sum);
 	
 	TxString(buffer);
 	
-	buffer[0] = '\0';
+	memset(buffer, 0, sizeof(buffer));
 }
 
 short Kalman(short value, bool reset)
@@ -324,11 +317,15 @@ void UploadMemory()
 	
 	TxString("\r\n");
 	
+	cli();
+	
 	for (int i = 0; i < size; i++)
 	{
 		sprintf(value, "%d$\r\n", eeprom_read_word((uint16_t*)Pointers[i]));
 		TxString(value);
 	}	
+	
+	sei();
 }
 
 void UploadVariables()
@@ -397,12 +394,17 @@ void SetDefaultSettings()
 {
 	short size = sizeof(Defaults)/sizeof(short);
 	
+	cli();
+	
 	for (int i = 0; i < size; i++) 
 		eeprom_update_word((uint16_t*)Pointers[i], Defaults[i]);
+		
+	sei();
 }
 
 void LoadSettings()
 {
+	cli();
 	Overfeed = eeprom_read_word((uint16_t*)OverfeedPointer);
 	Setpoint = eeprom_read_word((uint16_t*)SetpointPointer);
 	HysteresisUp = eeprom_read_word((uint16_t*)HysteresisUpPointer);
@@ -421,7 +423,8 @@ void LoadSettings()
 	IsTransmit = eeprom_read_word((uint16_t*)IsTransmitPointer);
 	MeasuresLimit = eeprom_read_word((uint16_t*)MeasuresLimitPointer);
 	MoveLackLimit = eeprom_read_word((uint16_t*)MoveLackLimitPointer);   
-	OvertimeLimit = eeprom_read_word((uint16_t*)OvertimeLimitPointer);  
+	OvertimeLimit = eeprom_read_word((uint16_t*)OvertimeLimitPointer); 
+	sei(); 
 }
 
 void Initialization()
@@ -443,7 +446,8 @@ void Initialization()
 	USART(On);
 	sei();			
 	
-	wdt_enable(WDTO_2S);
+	wdt_reset();
+	wdt_enable(WDTO_8S);
 }
 
 short GetRatio(short *p_a, short *p_b)
@@ -651,6 +655,8 @@ void ControlButtons()
 
 void ModesControl()
 {
+	if (InterfaceMode != Common && (PlusPushed || MinusPushed))	SettingAutoExitCount = 0;
+	
 	if (PlusPushed && MinusPushed)
 	{
 		if (InterfaceMode == Common)
@@ -677,7 +683,9 @@ void ModesControl()
 				default:
 				InterfaceMode = Setting;
 				DisplayMode = Setting;
+				cli();
 				ChangableValue = eeprom_read_word((uint16_t*)Pointers[IndexCurrentSetting]);
+				sei();
 				break;
 			}
 		}
@@ -777,7 +785,10 @@ void SettingControl()
 {	
 	if (SaveSetting)
 	{	
+		cli();
 		eeprom_update_word((uint16_t*)Pointers[IndexCurrentSetting], ChangableValue);
+		sei();
+		
 		ChangableValue = 0;
 		PlusPushed = false;
 		MinusPushed = false;
@@ -877,7 +888,7 @@ bool Stop()
 int main(void)
 {
 	unsigned short startDelayCount = 0, measureDelayCount = 0;
-	short a = 0, b = 0, r = 0, d = 0;	
+	short a = 0, b = 0, r = 0, d = 0;
 
 	Initialization();
 	
@@ -921,10 +932,11 @@ int main(void)
 		}
 		
 		if (HandleAfterSecond)	 
-		{
+		{			
 			if (!BtnMinus && InterfaceMode == Settings) SettingExitCount++;
+			if (InterfaceMode == Settings || InterfaceMode == Setting) SettingAutoExitCount++;
 			
-			if (SettingExitCount >= SETTING_EXIT || IsReloadSettings)  // reload settings after changing 
+			if (SettingExitCount >= SETTING_EXIT || IsReloadSettings || SettingAutoExitCount >= SETTING_AUTO_EXIT)  // reload settings after changing 
 			{
 				SettingExitCount = 0;
 				IndexCurrentSetting = 0;
@@ -936,8 +948,11 @@ int main(void)
 					DisplayMode = Current;
 					DisplayTimeoutCount = DisplayTimeout;
 				}
-				else DisplayMode = Off;
+				else 
+					DisplayMode = Off;
+				
 				if (CurrentError) DisplayMode = Error;
+				
 				LoadSettings();
 			}
 			
@@ -972,7 +987,7 @@ int main(void)
 					InstantValuesCountrol(&a, &b);	// control correct measures
 					SetDirection(&d, false);		// control moving directions, protections
 				}
-				
+				 
 				TCNT0 = 0;					 	    // counters clearing
 				TCNT1 = 0;
 				Timer0_OverflowCount = 0;
