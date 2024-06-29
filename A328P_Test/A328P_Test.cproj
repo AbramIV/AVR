@@ -15,7 +15,7 @@
     <AssemblyName>A328P_Test</AssemblyName>
     <Name>A328P_Test</Name>
     <RootNamespace>A328P_Test</RootNamespace>
-    <ToolchainFlavour>XC8_2.31</ToolchainFlavour>
+    <ToolchainFlavour>Native</ToolchainFlavour>
     <KeepTimersRunning>true</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <CacheFlash>true</CacheFlash>

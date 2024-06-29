@@ -41,8 +41,11 @@
 #define PulseOn		High(TCCR2A, COM2A1)
 #define PulseOff	Low(TCCR2A, COM2A1)
 
-//#define DDSOut	 (Check(PORTD, 7))
-//#define DDSOutInv Inv(PORTD, 7)
+#define DDSOut1	 (Check(PORTD, 6))
+#define DDSOut1Inv Inv(PORTD, 6)
+
+#define DDSOut2	 (Check(PORTD, 7))
+#define DDSOut2Inv Inv(PORTD, 7)
 
 //#define ImpOn  Low(PORTD, 7)
 //#define ImpOff High(PORTD, 7)
@@ -125,11 +128,10 @@ struct
 	float period, frequency, previousFrequency, bufFrequency, pulseCount;
 } Measure;
 
-struct
+struct DDS
 {
-	float setting;
-	unsigned long int increment, accum, frequency;
-} DDS;
+	unsigned long int increment, accum;
+} DDS1 = { 0, 0 }, DDS2 = { 0, 0 };
 
 struct
 {
@@ -186,18 +188,26 @@ ISR(TIMER1_OVF_vect)
 	TCNT1 = 64911;
 }
 
-//ISR(TIMER2_OVF_vect)
-//{
-	//TCNT2 = 255;
-	//
-	//DDS.accum += DDS.increment;
-	//
-	//if (DDS.accum >= ACCUM_MAXIMUM)
-	//{
-		////DDSOutInv;
-		//DDS.accum -= ACCUM_MAXIMUM;
-	//}
-//}
+ISR(TIMER2_OVF_vect)
+{
+	TCNT2 = 255;
+	
+	DDS1.accum += DDS1.increment;
+	
+	if (DDS1.accum >= ACCUM_MAXIMUM)
+	{
+		DDSOut1Inv;
+		DDS1.accum -= ACCUM_MAXIMUM;
+	}
+	
+	DDS2.accum += DDS2.increment;
+	
+	if (DDS2.accum >= ACCUM_MAXIMUM)
+	{
+		DDSOut2Inv;
+		DDS2.accum -= ACCUM_MAXIMUM;
+	}
+}
 
 ISR(USART_RX_vect)
 {
@@ -254,48 +264,48 @@ void Timer1(unsigned short mode)
 	}
 }
 
-//void Timer2(bool enable)
-//{
-	//if (enable)
-	//{
-		//TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 128 bit scaler
-		//TIMSK2 = (1<<TOIE2);
-		//return;
-	//}
-	//
-	//TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
-	//TIMSK2 = (0<<TOIE2);
-	//TCNT2 = 0;
-//}
-
 void Timer2(bool enable)
 {
-	TCNT2 = 0; 	   // reset count register
-	
 	if (enable)
 	{
-		TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
-		High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
+		TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 128 bit scaler
+		TIMSK2 = (1<<TOIE2);
 		return;
 	}
 	
-	TCCR2B = 0x00;										// stop count
-	Low(TIMSK2, TOIE2);									// overflow interrup disabled
+	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
+	TIMSK2 = (0<<TOIE2);
+	TCNT2 = 0;
 }
 
-ISR(TIMER2_OVF_vect)
-{
-	timer2_overflowCount++;					 // increase overflow variable
+//void Timer2(bool enable)
+//{
+	//TCNT2 = 0; 	   // reset count register
+	//
+	//if (enable)
+	//{
+		//TCCR2A = (1 << WGM21)|(1 << WGM20);				// configuration hardware PWM
+		//TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);	// scaler 1024
+		//High(TIMSK2, TOIE2);							// overflow interrupt enabled, every 8 ms.
+		//return;
+	//}
+	//
+	//TCCR2B = 0x00;										// stop count
+	//Low(TIMSK2, TOIE2);									// overflow interrup disabled
+//}
 
-	if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
-	{
-		handleAfterSecond = true;			 // set flag to handle data
-		timer2_overflowCount = 0;			 // reset overflow counter
-	}
-	// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
-	TCNT2 = 131;
-}
+//ISR(TIMER2_OVF_vect)
+//{
+	//timer2_overflowCount++;					 // increase overflow variable
+//
+	//if (timer2_overflowCount >= 125)		 // 8*125 = 1000 ms
+	//{
+		//handleAfterSecond = true;			 // set flag to handle data
+		//timer2_overflowCount = 0;			 // reset overflow counter
+	//}
+	//// load 131 to count register, 256-131 = 125 ticks of 64us, 125*64 = 8ms
+	//TCNT2 = 131;
+//}
  
 void Comparator()
 {
@@ -485,33 +495,33 @@ void Receive()
 	 memset(RxBuffer, 0, RxBufferSize);
  }
 
-float GetAddendum(void)
+float GetAddendum(float setting)
 {
 	static unsigned int divider = 0;
-	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
+	divider = setting < 11000 ? 10000 : 100000;
+	return (((ACCUM_MAXIMUM/divider)*setting)/FREQUENCY_MAXIMUM)*divider;
 }
 
 void SetOptionDDS(short direction)
 {
-	if (!direction)
-	{
-		DDS.setting = Measure.frequency;// * Encoder.multiplier;
-		DDS.increment = GetAddendum();
-		return;
-	}
-	
-	if (direction > 0)
-	{
-		Encoder.multiplier += DDS.setting >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
-		eeprom_update_float((float*)1, Encoder.multiplier);
-	}
-	
-	if (direction < 0)
-	{
-		Encoder.multiplier -= Encoder.multiplier <= Encoder.addendumValues[Encoder.addendum] ? Encoder.multiplier : Encoder.addendumValues[Encoder.addendum];
-		eeprom_update_float((float*)1, Encoder.multiplier);
-	}
+	//if (!direction)
+	//{
+		//DDS.setting = Measure.frequency;// * Encoder.multiplier;
+		//DDS.increment = GetAddendum();
+		//return;
+	//}
+	//
+	//if (direction > 0)
+	//{
+		//Encoder.multiplier += DDS.setting >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
+		//eeprom_update_float((float*)1, Encoder.multiplier);
+	//}
+	//
+	//if (direction < 0)
+	//{
+		//Encoder.multiplier -= Encoder.multiplier <= Encoder.addendumValues[Encoder.addendum] ? Encoder.multiplier : Encoder.addendumValues[Encoder.addendum];
+		//eeprom_update_float((float*)1, Encoder.multiplier);
+	//}
 }
 
 void RegulatorInit(float Kpid, float Kp, float Ki, float Kd)
@@ -526,8 +536,8 @@ void StepperStep()
 {
 	static unsigned short direction = Forward;
 
-	if (DDS.setting <= 0 && direction == Backyard) direction = Forward;
-	if (DDS.setting >= 20000 && direction == Forward) direction = Backyard;
+	//if (DDS.setting <= 0 && direction == Backyard) direction = Forward;
+	//if (DDS.setting >= 20000 && direction == Forward) direction = Backyard;
 	if (direction == Forward) Measure.frequency++;// else Measure.frequency--;
 	SetOptionDDS(0);
 }
@@ -537,19 +547,19 @@ void Regulator(void)
 	static float I,previousError;
 	float P,D,regulationError,factor;
 
-	DDS.setting = (Measure.frequency*Encoder.multiplier)*Factors.Kpid;
-	regulationError = DDS.setting - DDS.frequency;
-	
-	P = regulationError*Factors.Kp;
-	I = (I+(regulationError*0.08))*Factors.Ki;
-	D = ((regulationError-previousError)/0.08)*Factors.Kd;
-	
-	factor = P+I+D;
-	previousError = regulationError;
-	
-	DDS.frequency = factor < 0 ? factor*(-1) : factor;
-	
-	DDS.increment = GetAddendum();
+	//DDS.setting = (Measure.frequency*Encoder.multiplier)*Factors.Kpid;
+	//regulationError = DDS.setting - DDS.frequency;
+	//
+	//P = regulationError*Factors.Kp;
+	//I = (I+(regulationError*0.08))*Factors.Ki;
+	//D = ((regulationError-previousError)/0.08)*Factors.Kd;
+	//
+	//factor = P+I+D;
+	//previousError = regulationError;
+	//
+	//DDS.frequency = factor < 0 ? factor*(-1) : factor;
+	//
+	//DDS.increment = GetAddendum();
 }
 
 void ServoStep(unsigned int direction)
@@ -612,8 +622,8 @@ void SendToServer()
 	static char frequency[20], sizeBuffer[10], buffer[100];
 	
 	
-	size = GetDataSize(DDS.setting, 1);
-	sprintf(frequency, "F%.1f$", DDS.setting);
+	//size = GetDataSize(DDS.setting, 1);
+	//sprintf(frequency, "F%.1f$", DDS.setting);
 	sprintf(sizeBuffer, "%.d", size);
 	strcat(buffer, "AT+CIPSEND=");
 	strcat(buffer, sizeBuffer);
@@ -660,34 +670,40 @@ void Control()
 
 int main(void)
 {
+	int count = 0;
+	
 	DDRB = 0b00111111;					// ports init
 	PORTB = 0b00000000;
 	
 	DDRC = 0b00111111;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00000100;
-	PORTD = 0b11111011;
+	DDRD = 0b11000100;
+	PORTD = 0b00111011;
 	
+	Timer0(true);
 	//Timer1(Counter);
-	Timer2(On);
+	Timer2(true);
 	//Comparator();
-	USART(Init);
-	USART(On);
+	//USART(Init);
+	//USART(On);
 	sei();
+	
+	DDS1.increment = GetAddendum(1640);
+	DDS2.increment = GetAddendum(1640);
 	
 	//for (int i = 0; i < 1024; i++) eeprom_update_word((uint16_t*)i, 0);
 	
 	while(1)
 	{	
-		if (handleAfterSecond)
-		{
-			LedInv;
+		//if (handleAfterSecond)
+		//{
+			//LedInv;
 
-			Transmit();
+			//Transmit();
 
-			handleAfterSecond = false;
-		}
+			//handleAfterSecond = false;
+		//}
 
 		//Control();
 
@@ -699,14 +715,50 @@ int main(void)
 
 		//if (MainTimer.ms200)
 		//{
+			//
 			//MainTimer.ms200 = 0;
 		//}
 
-		//if (MainTimer.ms1000)
-		//{
-			//MainTimer.sec++;
-			//if (MainTimer.sec >= 59) MainTimer.sec = 0;
-			//MainTimer.ms1000 = 0;
-		//}
+		if (MainTimer.ms992)
+		{
+			LedInv;
+
+			switch(count)
+			{
+				case 0:
+					DDS1.increment = GetAddendum(1676);
+					DDS2.increment = GetAddendum(1684);
+					break;
+				case 1:
+					DDS1.increment = GetAddendum(1756);
+					DDS2.increment = GetAddendum(1694);
+					break;
+				case 2:
+					DDS1.increment = GetAddendum(1630);
+					DDS2.increment = GetAddendum(1739);
+					break;
+				case 3:
+					DDS1.increment = GetAddendum(1697);
+					DDS2.increment = GetAddendum(1671);
+					break;
+				case 4:
+					DDS1.increment = GetAddendum(1758);
+					DDS2.increment = GetAddendum(1668);
+					break;
+				case 5:
+					DDS1.increment = GetAddendum(1588);
+					DDS2.increment = GetAddendum(1671);
+					break;
+				default:
+					DDS1.increment = GetAddendum(1701);
+					DDS2.increment = GetAddendum(1664);
+					count = 0;
+					break;
+			}	
+			
+			count++; 
+
+			MainTimer.ms992 = 0;
+		}
 	}								  
 }

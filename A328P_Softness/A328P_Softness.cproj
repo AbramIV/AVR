@@ -15,7 +15,7 @@
     <AssemblyName>A328P_Softness</AssemblyName>
     <Name>A328P_Softness</Name>
     <RootNamespace>A328P_Softness</RootNamespace>
-    <ToolchainFlavour>XC8_2.31</ToolchainFlavour>
+    <ToolchainFlavour>Native</ToolchainFlavour>
     <KeepTimersRunning>true</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <CacheFlash>true</CacheFlash>

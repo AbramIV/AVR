@@ -15,7 +15,7 @@
     <AssemblyName>A328P_Autoassembling</AssemblyName>
     <Name>A328P_Autoassembling</Name>
     <RootNamespace>A328P_Autoassembling</RootNamespace>
-    <ToolchainFlavour>XC8_2.31</ToolchainFlavour>
+    <ToolchainFlavour>Native</ToolchainFlavour>
     <KeepTimersRunning>true</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <CacheFlash>true</CacheFlash>
