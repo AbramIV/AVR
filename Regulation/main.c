@@ -28,7 +28,7 @@
 
 struct Time
 {
-	unsigned int ms, ms200, handle;
+	unsigned int ms, ms5, ms200, handle;
 } MainTimer = { 0, 0, 0 };
 	
 struct
@@ -38,7 +38,7 @@ struct
 	unsigned int button;
 } Encoder = { 0, 0, 0 };
 
-unsigned int Addendum = 0;
+unsigned int Addendum = 1000;
 
 void Timer1()
 {	
@@ -60,7 +60,8 @@ ISR(TIMER2_OVF_vect)
 	//if (OCR1A <= 1) IsAcceleration = true;
 	//if (OCR1A >= 65535) IsAcceleration = false;
 
-	if (MainTimer.ms % 50 == 0) MainTimer.ms200++;  
+	if (MainTimer.ms % 5 == 0) MainTimer.ms5++;
+	if (MainTimer.ms % 200 == 0) MainTimer.ms200++;  
 
 	if (MainTimer.ms >= 1000)
 	{
@@ -187,7 +188,11 @@ int main(void)
 									
     while (1) 
     {	
-		ControlEncoder();
+		if (MainTimer.ms5) 
+		{
+			ControlEncoder();
+			MainTimer.ms5 = 0;
+		}
 		
 		if (MainTimer.ms200)
 		{
