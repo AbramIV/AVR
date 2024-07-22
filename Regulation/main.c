@@ -77,7 +77,7 @@ void USART(void)
 	Low(UCSR0A, U2X0);
 	UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
 	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-	UBRR0 = 3;
+	UBRR0 = 0;
 }
 
 void TxChar(unsigned char c)
@@ -95,10 +95,12 @@ void Transmit()
 {
 	static char data[16] = { 0 }, buffer[64] = { 0 };
 	
+	buffer[0] = '!';
 	sprintf(data, "$FnA%d$", Addendum);
 	strcat(buffer, data);
 	sprintf(data, "RgOCR1A%d$", OCR1A); 
 	strcat(buffer, data);
+	strcat(buffer, "#");
 	
 	TxString(buffer);
 	
@@ -191,6 +193,7 @@ int main(void)
 		if (MainTimer.ms5) 
 		{
 			ControlEncoder();
+			
 			MainTimer.ms5 = 0;
 		}
 		
