@@ -72,7 +72,6 @@
 
 #define Timeout 2
 
-#include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
 #include <avr/interrupt.h>

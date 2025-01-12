@@ -45,7 +45,6 @@
 #define Moving		30
 #define Stop		40
 
-#include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
 #include <avr/interrupt.h>

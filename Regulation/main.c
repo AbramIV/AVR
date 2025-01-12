@@ -19,6 +19,9 @@
 #define Left     (~PIND & (1<<3))
 #define Enter    (PIND  & (1<<4))
 
+#define SPI_Start	Low(PORTB, PORTB5)
+#define SPI_Stop	High(PORTB, PORTB5) 
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <stdio.h>
@@ -171,6 +174,22 @@ void ControlEncoder(void)
 	}
 }
 
+void SPI_Write(unsigned int word)
+{
+	unsigned char MSB = ((word >> 8) & 0x0f) | 0x70;  	//filter out MS
+	unsigned char LSB = word & 0xff;			//filter out LS
+
+	SPI_Start;
+
+	SPDR = MSB;							// 	send First 8 MS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+	
+	SPDR = LSB;							// 	send Last 8 LS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+
+	SPI_Stop;
+}
+
 int main(void)
 {
 	DDRB = 0b11111111;
@@ -187,6 +206,8 @@ int main(void)
 	USART();
 	
 	sei();
+	
+	//SPI_Write();
 									
     while (1) 
     {	
@@ -206,7 +227,7 @@ int main(void)
 		
 		if (MainTimer.handle)
 		{
-			LedInv;
+			//LedInv;
 
 			MainTimer.handle = 0;	
 		}

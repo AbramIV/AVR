@@ -6,9 +6,9 @@
  */ 
 
 #include <avr/io.h>
-#include <interrupt.h>
+#include <avr/interrupt.h>
 #include <stdio.h>
-#include <delay.h>
+#include <util/delay.h>
 #include <stdlib.h>
 #include <lcd_lib.h>
 

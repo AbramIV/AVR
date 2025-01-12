@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Atmel Studio Solution File, Format Version 11.00
 VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A2560_Autoassembling", "A2560_Autoassembling\A2560_Autoassembling.cproj", "{2285C48D-296E-43FD-A7B6-69885F64CFFD}"
-EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Test", "A328P_Test\A328P_Test.cproj", "{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Libraries", "Libraries", "{114D43B6-E66F-4C46-BF92-A628000E558A}"
@@ -55,10 +53,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dht", "dht", "{D265520E-71C
 		..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h = ..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h
 	EndProjectSection
 EndProject
-Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling_Peripherials", "A328P_Autoassembling_Peripherials\A328P_Autoassembling_Peripherials.cproj", "{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}"
-EndProject
-Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Softness", "A328P_Softness\A328P_Softness.cproj", "{3AE0753F-B650-4F76-97B1-6FD48ECDE2EE}"
-EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Unwinder", "Unwinder\Unwinder.cproj", "{D530F640-72F9-4A74-B0FD-6A18A26071F2}"
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "PumpCounter", "PumpCounter\PumpCounter.cproj", "{5E897B61-36C3-4282-8F2D-AE2B0C1E68AB}"
@@ -73,28 +67,22 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ad9833", "ad9833", "{6474AB
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Regulation", "Regulation\Regulation.cproj", "{DCE6C7E3-EE26-4D79-826B-08594B9AD897}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A2560_Autoassembling", "A2560_Autoassembling\A2560_Autoassembling.cproj", "{9E4D787B-60C6-422D-B98C-022DA1864E6F}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Softness", "A328P_Softness\A328P_Softness.cproj", "{0B18F89C-0C90-4651-B314-AB4371BC86C6}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling_Peripherials", "A328P_Autoassembling_Peripherials\A328P_Autoassembling_Peripherials.cproj", "{1D84A8AE-BF76-4867-8EA4-F45D1174436F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
 		Release|AVR = Release|AVR
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{2285C48D-296E-43FD-A7B6-69885F64CFFD}.Debug|AVR.ActiveCfg = Debug|AVR
-		{2285C48D-296E-43FD-A7B6-69885F64CFFD}.Debug|AVR.Build.0 = Debug|AVR
-		{2285C48D-296E-43FD-A7B6-69885F64CFFD}.Release|AVR.ActiveCfg = Release|AVR
-		{2285C48D-296E-43FD-A7B6-69885F64CFFD}.Release|AVR.Build.0 = Release|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Debug|AVR.ActiveCfg = Debug|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Debug|AVR.Build.0 = Debug|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Release|AVR.ActiveCfg = Release|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Release|AVR.Build.0 = Release|AVR
-		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Debug|AVR.ActiveCfg = Debug|AVR
-		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Debug|AVR.Build.0 = Debug|AVR
-		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Release|AVR.ActiveCfg = Release|AVR
-		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Release|AVR.Build.0 = Release|AVR
-		{3AE0753F-B650-4F76-97B1-6FD48ECDE2EE}.Debug|AVR.ActiveCfg = Debug|AVR
-		{3AE0753F-B650-4F76-97B1-6FD48ECDE2EE}.Debug|AVR.Build.0 = Debug|AVR
-		{3AE0753F-B650-4F76-97B1-6FD48ECDE2EE}.Release|AVR.ActiveCfg = Release|AVR
-		{3AE0753F-B650-4F76-97B1-6FD48ECDE2EE}.Release|AVR.Build.0 = Release|AVR
 		{D530F640-72F9-4A74-B0FD-6A18A26071F2}.Debug|AVR.ActiveCfg = Debug|AVR
 		{D530F640-72F9-4A74-B0FD-6A18A26071F2}.Debug|AVR.Build.0 = Debug|AVR
 		{D530F640-72F9-4A74-B0FD-6A18A26071F2}.Release|AVR.ActiveCfg = Release|AVR
@@ -111,6 +99,18 @@ Global
 		{DCE6C7E3-EE26-4D79-826B-08594B9AD897}.Debug|AVR.Build.0 = Debug|AVR
 		{DCE6C7E3-EE26-4D79-826B-08594B9AD897}.Release|AVR.ActiveCfg = Release|AVR
 		{DCE6C7E3-EE26-4D79-826B-08594B9AD897}.Release|AVR.Build.0 = Release|AVR
+		{9E4D787B-60C6-422D-B98C-022DA1864E6F}.Debug|AVR.ActiveCfg = Debug|AVR
+		{9E4D787B-60C6-422D-B98C-022DA1864E6F}.Debug|AVR.Build.0 = Debug|AVR
+		{9E4D787B-60C6-422D-B98C-022DA1864E6F}.Release|AVR.ActiveCfg = Release|AVR
+		{9E4D787B-60C6-422D-B98C-022DA1864E6F}.Release|AVR.Build.0 = Release|AVR
+		{0B18F89C-0C90-4651-B314-AB4371BC86C6}.Debug|AVR.ActiveCfg = Debug|AVR
+		{0B18F89C-0C90-4651-B314-AB4371BC86C6}.Debug|AVR.Build.0 = Debug|AVR
+		{0B18F89C-0C90-4651-B314-AB4371BC86C6}.Release|AVR.ActiveCfg = Release|AVR
+		{0B18F89C-0C90-4651-B314-AB4371BC86C6}.Release|AVR.Build.0 = Release|AVR
+		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Debug|AVR.ActiveCfg = Debug|AVR
+		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Debug|AVR.Build.0 = Debug|AVR
+		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Release|AVR.ActiveCfg = Release|AVR
+		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

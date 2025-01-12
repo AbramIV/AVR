@@ -299,7 +299,7 @@ float AverageFrequency(unsigned short *value)
 
 int main(void)
 {	
-	unsigned short distance = 0;
+	//unsigned short distance = 0;
 	
 	Initialization();
 
@@ -307,7 +307,7 @@ int main(void)
     {
 		if (PulseCaptured)
 		{
-			distance = AverageDistance((unsigned short)(Ticks * 0.01046875));
+			//distance = AverageDistance((unsigned short)(Ticks * 0.01046875));
 			PulseCaptured = false;
 		}
 		

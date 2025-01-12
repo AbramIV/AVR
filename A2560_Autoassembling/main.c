@@ -62,7 +62,6 @@
 #define Terminator  '$'
 #define StringEnd	'\0'
 
-#include <xc.h>
 #include <avr/io.h>
 #include <float.h>
 #include "lcd/lcd.h"

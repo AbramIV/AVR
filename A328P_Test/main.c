@@ -62,7 +62,7 @@
 #define Counter		0
 #define Oscillator  1
 
-#include <xc.h>
+#include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdio.h>
