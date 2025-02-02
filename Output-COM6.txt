@@ -1,0 +1,32 @@
+﻿
+avrdude: Version 7.3
+         Copyright the AVRDUDE authors;
+         see https://github.com/avrdudes/avrdude/blob/main/AUTHORS
+
+         System wide configuration file is C:\Main\Utilities\Avrdude\avrdude.conf
+
+         Using port            : com6
+         Using programmer      : arduino
+         Setting baud rate     : 115200
+         AVR Part              : ATmega328P
+         Programming modes     : ISP, HVPP, debugWIRE, SPM
+         Programmer Type       : Arduino
+         Description           : Arduino for bootloader using STK500 v1 protocol
+         HW Version            : 2
+         FW Version            : 1.16
+avrdude: AVR device initialized and ready to accept instructions
+avrdude: device signature = 0x1e950f (probably m328p)
+
+avrdude: processing -U flash:w:C:\Main\Repositories\AVR\Regulation\Debug\Regulation.hex:i
+avrdude: reading input file C:\Main\Repositories\AVR\Regulation\Debug\Regulation.hex for flash
+         with 4032 bytes in 1 section within [0, 0xfbf]
+         using 32 pages and 64 pad bytes
+avrdude: writing 4032 bytes flash ...
+Writing | ################################################## | 100% 0.79s
+avrdude: 4032 bytes of flash written
+avrdude: verifying flash memory against C:\Main\Repositories\AVR\Regulation\Debug\Regulation.hex
+Reading | ################################################## | 100% 0.49s
+avrdude: 4032 bytes of flash verified
+
+avrdude done.  Thank you.
+

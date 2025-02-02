@@ -82,7 +82,7 @@ volatile struct
 	bool active, action, changed;
 } Mode;
 
-volatile struct 
+volatile struct
 {
 	float ungrinded, grinded;
 	float difference;

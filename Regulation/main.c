@@ -22,12 +22,23 @@
 #define SPI_Start	Low(PORTB, PORTB5)
 #define SPI_Stop	High(PORTB, PORTB5) 
 
+#define DDSOut1		(Check(PORTB, 1))
+#define DDSOut1Inv  Inv(PORTB, 1)
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+
+const unsigned long int		ACCUM_MAXIMUM = 1875000000;
+const unsigned int	    FREQUENCY_MAXIMUM = 31250; // timer2 divider 256
+
+struct DDS
+{
+	unsigned long int increment, accum;
+} DDS1 = { 0, 0 };
 
 struct Time
 {
@@ -42,6 +53,28 @@ struct
 } Encoder = { 0, 0, 0 };
 
 unsigned int Addendum = 1000;
+unsigned int Frequency = 0;
+
+
+void Timer0()
+{
+	TCCR0B = (1<<CS02) | (0<<CS01) | (0<<CS00); // 128 bit scaler
+	TIMSK0 = (1<<TOIE0);
+	TCNT0 = 0;
+}
+
+ ISR(TIMER0_OVF_vect)
+ {
+	 TCNT0 = 255;
+	 
+	 DDS1.accum += DDS1.increment;
+	 
+	 if (DDS1.accum >= ACCUM_MAXIMUM)
+	 {
+		 DDSOut1Inv;
+		 DDS1.accum -= ACCUM_MAXIMUM;
+	 }
+ }
 
 void Timer1()
 {	
@@ -80,7 +113,7 @@ void USART(void)
 	Low(UCSR0A, U2X0);
 	UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
 	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-	UBRR0 = 0;
+	UBRR0 = 3;
 }
 
 void TxChar(unsigned char c)
@@ -99,7 +132,7 @@ void Transmit()
 	static char data[16] = { 0 }, buffer[64] = { 0 };
 	
 	buffer[0] = '!';
-	sprintf(data, "$FnA%d$", Addendum);
+	sprintf(data, "$FnA%d$", Frequency); // Addendum
 	strcat(buffer, data);
 	sprintf(data, "RgOCR1A%d$", OCR1A); 
 	strcat(buffer, data);
@@ -110,6 +143,13 @@ void Transmit()
 	memset(buffer, 0, sizeof(buffer));
 }
 
+float GetAddendum(float setting)
+ {
+	 static unsigned int divider = 0;
+	 divider = setting < 11000 ? 10000 : 100000;
+	 return (((ACCUM_MAXIMUM/divider)*setting)/FREQUENCY_MAXIMUM)*divider;
+ }
+
 void ControlEncoder(void)
 {
 	if (Right) Encoder.up = 0;
@@ -118,7 +158,12 @@ void ControlEncoder(void)
 		{
 			if (Encoder.up == 1 && Left)
 			{
-				OCR1A -= Addendum;
+				//OCR1A -= Addendum;
+				if (Frequency <= 4900)
+				{
+					Frequency += 100;
+					DDS1.increment = GetAddendum(Frequency);
+				} 
 				return;
 			}
 		}
@@ -130,7 +175,12 @@ void ControlEncoder(void)
 		{
 			if (Encoder.down == 1 && Right)
 			{
-				OCR1A += Addendum;
+				//OCR1A += Addendum;
+				if (Frequency > 100)
+				{
+					Frequency -= 100;
+					DDS1.increment = GetAddendum(Frequency);
+				}
 				return;
 			}
 		}
@@ -201,18 +251,22 @@ int main(void)
 	DDRD = 0b00000000;
 	PORTD = 0b00011111;
 	
-	Timer1();
+	Timer0();
+	//Timer1();
 	Timer2();
 	USART();
 	
-	sei();
+	Frequency = 0;
+	DDS1.increment = GetAddendum(Frequency);
 	
-	//SPI_Write();
+	sei();
 									
     while (1) 
     {	
 		if (MainTimer.ms5) 
 		{
+			
+			
 			ControlEncoder();
 			
 			MainTimer.ms5 = 0;
@@ -220,14 +274,16 @@ int main(void)
 		
 		if (MainTimer.ms200)
 		{
-			Transmit();
 			
+			
+			Transmit();
+
 			MainTimer.ms200--;
 		}
 		
 		if (MainTimer.handle)
 		{
-			//LedInv;
+			LedInv;
 
 			MainTimer.handle = 0;	
 		}
