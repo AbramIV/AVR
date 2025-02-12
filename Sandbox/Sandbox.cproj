@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectVersion>7.0</ProjectVersion>
     <ToolchainName>com.Atmel.AVRGCC8.C</ToolchainName>
-    <ProjectGuid>{d530f640-72f9-4a74-b0fd-6a18a26071f2}</ProjectGuid>
+    <ProjectGuid>{b45d2489-af56-47fa-a012-7dd216fc357c}</ProjectGuid>
     <avrdevice>ATmega328P</avrdevice>
     <avrdeviceseries>none</avrdeviceseries>
     <OutputType>Executable</OutputType>
@@ -12,47 +12,34 @@
     <OutputFileName>$(MSBuildProjectName)</OutputFileName>
     <OutputFileExtension>.elf</OutputFileExtension>
     <OutputDirectory>$(MSBuildProjectDirectory)\$(Configuration)</OutputDirectory>
-    <AssemblyName>Unwinder</AssemblyName>
-    <Name>Unwinder</Name>
-    <RootNamespace>Unwinder</RootNamespace>
+    <AssemblyName>Sandbox</AssemblyName>
+    <Name>Sandbox</Name>
+    <RootNamespace>Sandbox</RootNamespace>
     <ToolchainFlavour>Native</ToolchainFlavour>
     <KeepTimersRunning>true</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <CacheFlash>true</CacheFlash>
     <ProgFlashFromRam>true</ProgFlashFromRam>
-    <RamSnippetAddress>0x20000000</RamSnippetAddress>
+    <RamSnippetAddress />
     <UncachedRange />
     <preserveEEPROM>true</preserveEEPROM>
-    <OverrideVtorValue>exception_table</OverrideVtorValue>
+    <OverrideVtorValue />
     <BootSegment>2</BootSegment>
     <ResetRule>0</ResetRule>
     <eraseonlaunchrule>0</eraseonlaunchrule>
     <EraseKey />
     <AsfFrameworkConfig>
-      <framework-data>
-        <options />
-        <configurations />
-        <files />
-        <documentation help="" />
-        <offline-documentation help="" />
-        <dependencies>
-          <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.44.1" />
-        </dependencies>
-      </framework-data>
+      <framework-data xmlns="">
+  <options />
+  <configurations />
+  <files />
+  <documentation help="" />
+  <offline-documentation help="" />
+  <dependencies>
+    <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.52.0" />
+  </dependencies>
+</framework-data>
     </AsfFrameworkConfig>
-    <avrtool>com.atmel.avrdbg.tool.simulator</avrtool>
-    <avrtoolserialnumber />
-    <avrdeviceexpectedsignature>0x1E950F</avrdeviceexpectedsignature>
-    <com_atmel_avrdbg_tool_simulator>
-      <ToolOptions xmlns="">
-        <InterfaceProperties>
-        </InterfaceProperties>
-      </ToolOptions>
-      <ToolType xmlns="">com.atmel.avrdbg.tool.simulator</ToolType>
-      <ToolNumber xmlns="">
-      </ToolNumber>
-      <ToolName xmlns="">Simulator</ToolName>
-    </com_atmel_avrdbg_tool_simulator>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -106,7 +93,7 @@
   <avrgcc.compiler.symbols.DefSymbols>
     <ListValues>
       <Value>DEBUG</Value>
-      <Value>F_CPU=16000000L</Value>
+      <Value>F_CPU=1600000L</Value>
     </ListValues>
   </avrgcc.compiler.symbols.DefSymbols>
   <avrgcc.compiler.directories.IncludePaths>
@@ -114,7 +101,7 @@
       <Value>%24(PackRepoDir)\Atmel\ATmega_DFP\2.2.509\include\</Value>
     </ListValues>
   </avrgcc.compiler.directories.IncludePaths>
-  <avrgcc.compiler.optimization.level>Optimize more (-O2)</avrgcc.compiler.optimization.level>
+  <avrgcc.compiler.optimization.level>Optimize debugging experience (-Og)</avrgcc.compiler.optimization.level>
   <avrgcc.compiler.optimization.PackStructureMembers>True</avrgcc.compiler.optimization.PackStructureMembers>
   <avrgcc.compiler.optimization.AllocateBytesNeededForEnum>True</avrgcc.compiler.optimization.AllocateBytesNeededForEnum>
   <avrgcc.compiler.optimization.DebugLevel>Default (-g2)</avrgcc.compiler.optimization.DebugLevel>
@@ -124,7 +111,6 @@
       <Value>libm</Value>
     </ListValues>
   </avrgcc.linker.libraries.Libraries>
-  <avrgcc.linker.miscellaneous.LinkerFlags>-Wl,-u,vfprintf -lprintf_flt -lm</avrgcc.linker.miscellaneous.LinkerFlags>
   <avrgcc.assembler.general.IncludePaths>
     <ListValues>
       <Value>%24(PackRepoDir)\Atmel\ATmega_DFP\2.2.509\include\</Value>

@@ -73,6 +73,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Softness", "A328P_Sof
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling_Peripherials", "A328P_Autoassembling_Peripherials\A328P_Autoassembling_Peripherials.cproj", "{1D84A8AE-BF76-4867-8EA4-F45D1174436F}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Sandbox", "Sandbox\Sandbox.cproj", "{B45D2489-AF56-47FA-A012-7DD216FC357C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -111,6 +113,10 @@ Global
 		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Debug|AVR.Build.0 = Debug|AVR
 		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Release|AVR.ActiveCfg = Release|AVR
 		{1D84A8AE-BF76-4867-8EA4-F45D1174436F}.Release|AVR.Build.0 = Release|AVR
+		{B45D2489-AF56-47FA-A012-7DD216FC357C}.Debug|AVR.ActiveCfg = Debug|AVR
+		{B45D2489-AF56-47FA-A012-7DD216FC357C}.Debug|AVR.Build.0 = Debug|AVR
+		{B45D2489-AF56-47FA-A012-7DD216FC357C}.Release|AVR.ActiveCfg = Release|AVR
+		{B45D2489-AF56-47FA-A012-7DD216FC357C}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
