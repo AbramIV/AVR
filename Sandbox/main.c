@@ -31,53 +31,54 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-struct MainTimer
+typedef struct OperationalTimer
 {
 	uint16_t ms, ms2, ms5, ms10, ms100, ms200, ms500, s;
 	bool isr;
-} operationTimer = {0, 0, 0, 0, 0, 0, 0, 0, false};
+} OperationalTimer;
 
-uint16_t incTime = 8;
-uint16_t decTime = 3;
-uint16_t incStepCount = 0;
-uint16_t decStepCount = 0;
-uint16_t incStep = 0;
-uint16_t decStep = 0;
-bool inc = false;
-bool dec = false;
+struct sVariator
+{
+	 uint16_t duration;
+	 uint16_t count;
+	 uint16_t step;
+	 bool active;
+	 bool isInc;
+} variator = {0, 0, 0, false};
+
+OperationalTimer mainTimer = {0, 0, 0, 0, 0, 0, 0, 0, false};
+
+//sVariator increment = {0, 0, 0, false};
+//sVariator decrement = {0, 0, 0, false};
 
 void GPIO_Init(void);
 void timer0_Init(void);
 void timer1_Init(void);
-uint16_t getStep(uint16_t period);
 
 int main(void)
-{
+{	
 	GPIO_Init();
 	
 	timer0_Init();
 	timer1_Init();
 	
-	PWM_ON;
-	
 	sei();
 	
-	incStep = getStep(incTime);
-	inc = true;
+	variator.duration = 8000;
+	variator.step = variator.duration/OCR0A;
 	
     while (1) 
     {
-		if (operationTimer.ms200)
+		if (mainTimer.ms200)
 		{
 			LED_TOGGLE;
-			operationTimer.ms200 = 0;
+			mainTimer.ms200 = 0;
 		}
 		
-		
-		if (operationTimer.s)
+		if (mainTimer.s)
 		{
 			
-			operationTimer.s = 0;
+			mainTimer.s = 0;
 		}
     }
 }
@@ -98,7 +99,7 @@ void timer0_Init(void)
 {
 	TCCR0A = (1 << COM0A1)|(1 << WGM01)|(1 << WGM00);
 	TCCR0B = (1 << CS02)|(0 << CS01)|(0 << CS00); // divider 256, 1 tick = 16 us
-	OCR0A = 0;
+	OCR0A = 255;
 	
 	TCCR0B = 0x00;
 }
@@ -110,30 +111,33 @@ void timer1_Init(void)
 	TCNT1 = 63536; // interrupt in 2000 ticks / 1 tick -> 0.5 us
 }
 
-uint16_t getStep(uint16_t period_ms)
-{
-	return period_ms/PWM_STEPS_MAX;
-}
-
 ISR(TIMER1_OVF_vect)
 {
-	operationTimer.ms++;
-	if (inc) incStepCount++;
+	mainTimer.ms++;
 	
-	if (inc && (incStepCount == incTime))
+	if (variator.active) variator.count++;
+	
+	if (variator.count == variator.step)
 	{
-		if (OCR0A == 255) inc = false;
-		OCR0A++;
-		incStepCount = 0;
+		if (OCR0A == 255 || !OCR0A) 
+		{
+			variator.active = false;
+			variator.count = 0;
+		}
+		else
+		{
+			if (variator.isInc) OCR0A++;
+			else OCR0A--;
+		}
 	}
 	
-	if (operationTimer.ms % 200 == 0) operationTimer.ms200++;
-	if (operationTimer.ms % 1000 == 0) 
+	if (mainTimer.ms % 200 == 0) mainTimer.ms200++;
+	if (mainTimer.ms % 1000 == 0) 
 	{
-		operationTimer.s++;
-		operationTimer.ms = 0;
+		mainTimer.s++;
+		mainTimer.ms = 0;
 	}
 
-	operationTimer.isr = true;
+	mainTimer.isr = true;
 	TCNT1 = 63536;
 }
