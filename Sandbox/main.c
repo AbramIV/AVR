@@ -110,6 +110,7 @@ int main(void)
 				LED_OFF;
 				if (!variator.direction) PWM_OFF;
 				variator.active = false;
+				ADMUX = 0x40;
 			}	
 			
 			variator.count = 0;
@@ -119,12 +120,13 @@ int main(void)
 		{
 			if (ADMUX == 0x40)
 			{
-				variator.duration = (durationAvg(converter.value, false)/ADC_MAX)*DURATION_MAX;
+				variator.duration = 10000;//(durationAvg(converter.value, false)/ADC_MAX)*DURATION_MAX;
 				ADMUX++;
 			}
 			else
 			{
 				variator.power = (powerAvg(converter.value, false)/ADC_MAX)*PWM_MAX;
+				if (PWM && OCR0A != variator.power) OCR0A = variator.power; 
 				ADMUX--;
 			}
 			
