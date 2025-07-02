@@ -23,9 +23,9 @@
 #define PWM_OUT_ON	 BIT_SET(PORTD, 6)
 #define PWM_OUT_OFF	 BIT_CLEAR(PORTD, 6)
 
-#define PWM		BIT_READ(TCCR0B, CS02)
-#define PWM_ON  BIT_SET(TCCR0B, CS02)
-#define PWM_OFF BIT_CLEAR(TCCR0B, CS02)
+#define PWM			 BIT_READ(TCCR0B, CS02)
+#define PWM_ON		 BIT_SET(TCCR0B, CS02)
+#define PWM_OFF		 BIT_CLEAR(TCCR0B, CS02)
 
 #define ADC_START  BIT_SET(ADCSRA, ADSC);
 
@@ -92,7 +92,7 @@ int main(void)
 	
     while (1)
     {
-		if (!variator.delay && !variator.active && !KEY) keyPushed = true;
+		if (!KEY) keyPushed = true;
 		
 		if (keyPushed)
 		{
@@ -120,7 +120,7 @@ int main(void)
 		{
 			if (ADMUX == 0x40)
 			{
-				variator.duration = 10000;//(durationAvg(converter.value, false)/ADC_MAX)*DURATION_MAX;
+				variator.duration = 10000; //(durationAvg(converter.value, false)/ADC_MAX)*DURATION_MAX;
 				ADMUX++;
 			}
 			else
